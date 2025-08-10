@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <!-- Original effect by Chris M: https://gitlab.com/OpenRGBDevelopers/OpenRGBEffectsPlugin/-/tree/master/Effects/AudioParty?ref_type=heads -->
+    <title>Audio Party</title>
+    <meta description="Movement, color change, and effects driven by audio frequency zones.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+    <!-- General Controls -->
+    <meta property="speed" label="Motion Speed" type="number" min="1" max="100" default="50">
+    <meta property="color_change_speed" label="Color Change Speed" type="number" min="1" max="50" default="25">
+    <meta property="rotation_speed" label="Rotation Speed" type="number" min="-100" max="100" default="0">
+    <meta property="divisions" label="Divisions" type="number" min="2" max="16" step="2" default="2">
+    <meta property="effect_threshold_percent" label="Effect Threshold (%)" type="number" min="0" max="100" step="1" default="25">
+    
+    <!-- Noise Effect Controls -->
+    <meta property="noise_frequency_percent" label="Noise Frequency (%)" type="number" min="0" max="100" default="50">
+    <meta property="noise_scale" label="Noise Scale" type="number" min="1" max="100" default="1">
+    <meta property="noise_is_rgb" label="Color Noise" type="boolean" default="true">
+
+    <!-- Specific Effect Toggles & Controls -->
+    <meta property="enable_horizontal_bars" label="Enable Horizontal Bars" type="boolean" default="true">
+    <meta property="enable_vertical_bars" label="Enable Vertical Bars" type="boolean" default="true">
+    <meta property="enable_shockwave" label="Enable Shockwave" type="boolean" default="true">
+    <meta property="enable_blink" label="Enable Blink/Explosion" type="boolean" default="true">
+    <meta property="enable_glitch" label="Enable Glitch Effect" type="boolean" default="true">
+    <meta property="shockwave_thickness" label="Shockwave Thickness" type="number" min="1" max="50" default="20">
+    <meta property="shockwave_color" label="Shockwave Color" type="color" default="#ffffff">
+    <meta property="glitch_intensity" label="Glitch Intensity" type="number" min="1" max="100" default="25">
+
+    <!-- Audio Zone Controls -->
+    <meta property="motion_zone_stop" label="Motion Zone End" type="number" min="0" max="199" step="1" default="50">
+    <meta property="color_zone_stop" label="Color Zone End" type="number" min="0" max="200" step="1" default="150">
+</head>
+
+<body style="margin: 0; padding: 0;">
+    <canvas id="audioparty-canvas" width="320" height="200"></canvas>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('audioparty-canvas');
+const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
+
+// Effect state variables
+let x_shift = 0.0;
+let color_shift = 0.0;
+let rotation_angle = 0.0;
+let effect_progress = 1.0;
+let effect_idx = 0;
+let other_effect_cycler = -1;
+
+// -------------------------------------------------------------------
+// COLOR UTILITIES
+// -------------------------------------------------------------------
+
+function hsvToRgb(h, s, v) {
+    let r, g, b;
+    const i = Math.floor(h * 6);
+    const f = h * 6 - i;
+    const p = v * (1 - s);
+    const q = v * (1 - f * s);
+    const t = v * (1 - (1 - f) * s);
+    switch (i % 6) {
+        case 0: r = v, g = t, b = p; break; case 1: r = q, g = v, b = p; break;
+        case 2: r = p, g = v, b = t; break; case 3: r = p, g = q, b = v; break;
+        case 4: r = t, g = p, b = v; break; case 5: r = v, g = p, b = q; break;
+    }
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+}
+
+function hexToRgb(hex) {
+    if (!hex) return [255, 255, 255];
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return [r, g, b];
+}
+
+function screenBlend(base, blend) {
+    const r = 1 - (1 - base[0] / 255) * (1 - blend[0] / 255);
+    const g = 1 - (1 - base[1] / 255) * (1 - blend[1] / 255);
+    const b = 1 - (1 - base[2] / 255) * (1 - blend[2] / 255);
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+}
+
+function lerpColor(color1, color2, factor) {
+    const r = color1[0] * (1 - factor) + color2[0] * factor;
+    const g = color1[1] * (1 - factor) + color2[1] * factor;
+    const b = color1[2] * (1 - factor) + color2[2] * factor;
+    return [Math.round(r), Math.round(g), Math.round(b)];
+}
+
+// -------------------------------------------------------------------
+// EFFECT LOGIC
+// -------------------------------------------------------------------
+
+const seededRandom = s => {
+    s = Math.sin(s) * 43758.5453;
+    return s - Math.floor(s);
+};
+
+function getColor(x, y, w, h) {
+    const angle_rad = rotation_angle * Math.PI / 180.0;
+    const cos_a = Math.cos(angle_rad);
+    const sin_a = Math.sin(angle_rad);
+    
+    const centerX = w / 2;
+    const centerY = h / 2;
+    const translatedX = x - centerX;
+    const translatedY = y - centerY;
+
+    const rotatedX = translatedX * cos_a - translatedY * sin_a;
+    const rotatedY = translatedX * sin_a + translatedY * cos_a;
+
+    let finalX = rotatedX + centerX;
+    const finalY = rotatedY + centerY;
+
+    // --- Glitch Effect Logic ---
+    if (effect_progress < 1 && effect_idx === 7) {
+        const line_seed = y * 1234.5;
+        const random_offset = (seededRandom(line_seed) - 0.5) * 2; // -1 to 1
+        const intensity_factor = (glitch_intensity / 100) * w * 0.2; // Max 20% of screen width
+        const current_intensity = intensity_factor * (1 - effect_progress);
+        finalX += random_offset * current_intensity;
+    }
+
+    const s = 0.5 * (1 + Math.sin((finalX / w) * divisions * Math.PI + x_shift));
+    const hue = (180 + Math.sin((finalY / h) + color_shift) * 180) / 360;
+    const baseColor = hsvToRgb(hue, 1, 1);
+
+    let effectColor = [0, 0, 0];
+
+    if (effect_progress < 1) {
+        switch (effect_idx) {
+            case 0: case 1: case 2: case 3: // Moving bars
+                const bar_width = 2;
+                if ((effect_idx <= 1 && Math.abs(finalX - (effect_idx === 0 ? effect_progress * w : w - effect_progress * w)) <= bar_width) ||
+                    (effect_idx >= 2 && Math.abs(finalY - (effect_idx === 2 ? effect_progress * h : h - effect_progress * h)) <= bar_width)) {
+                    effectColor = [255, 255, 255];
+                }
+                break;
+            case 4: // Adjustable Pixel Noise
+                const blockSize = 1 + Math.floor(noise_scale / 5);
+                const blockX = Math.floor(finalX / blockSize);
+                const blockY = Math.floor(finalY / blockSize);
+                const seed = (blockX * 16807 + blockY * 37) & 0x7fffffff;
+                if (noise_is_rgb) {
+                    effectColor = [seededRandom(seed) * 255, seededRandom(seed * 1.3) * 255, seededRandom(seed * 1.7) * 255];
+                } else {
+                    effectColor = [seededRandom(seed) * 255, seededRandom(seed) * 255, seededRandom(seed) * 255];
+                }
+                break;
+            case 5: // White blink/explosion
+                const blinkValue = (1 - effect_progress) * 255;
+                effectColor = [blinkValue, blinkValue, blinkValue];
+                break;
+            case 6: // Shockwave effect
+                const current_dist = Math.sqrt(translatedX*translatedX + translatedY*translatedY);
+                const shockwave_radius = effect_progress * (w/2);
+                if (Math.abs(current_dist - shockwave_radius) < shockwave_thickness) {
+                    effectColor = hexToRgb(shockwave_color);
+                }
+                break;
+        }
+    }
+
+    const waveLayer = lerpColor([0,0,0], baseColor, s);
+    let finalColor;
+    if (effectColor[0] > 0 || effectColor[1] > 0 || effectColor[2] > 0) {
+        finalColor = screenBlend(waveLayer, effectColor);
+    } else {
+        finalColor = waveLayer;
+    }
+    
+    return `rgb(${Math.round(finalColor[0])}, ${Math.round(finalColor[1])}, ${Math.round(finalColor[2])})`;
+}
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+let lastTime = 0;
+function update(currentTime) {
+    const deltaTime = (currentTime - lastTime) / 1000;
+    lastTime = currentTime;
+    
+    if(isNaN(deltaTime)) { window.requestAnimationFrame(update); return; }
+    
+    const audioData = new Int8Array(engine.audio.freq);
+    const effect_threshold = effect_threshold_percent / 100.0;
+    const motionDelta = speed * deltaTime;
+    const colorDelta = color_change_speed * deltaTime;
+
+    rotation_angle += (rotation_speed / 100) * 90 * deltaTime;
+
+    for (let i = 0; i < motion_zone_stop; i++) {
+        if (audioData[i] > audioData[i + 1]) {
+            x_shift += (audioData[i] / 128.0) * motionDelta * ((i % 2 === 0) ? 1 : -1);
+            break;
+        }
+    }
+    for (let i = motion_zone_stop; i < color_zone_stop; i++) {
+        if (audioData[i] > audioData[i + 1]) {
+            color_shift += (audioData[i] / 128.0) * colorDelta * ((i % 2 === 0) ? 1 : -1);
+            break;
+        }
+    }
+
+    if (effect_progress >= 1) {
+        let maxLevel = 0;
+        for (let i = color_zone_stop; i < 200; i++) {
+            const level = Math.abs(audioData[i]) / 128.0;
+            if (level > maxLevel) maxLevel = level;
+        }
+        
+        if (maxLevel > effect_threshold) {
+            if (Math.random() < (noise_frequency_percent / 100.0)) {
+                effect_idx = 4;
+                effect_progress = 0;
+            } else {
+                const availableEffects = [];
+                if (enable_horizontal_bars) { availableEffects.push(0, 1); }
+                if (enable_vertical_bars) { availableEffects.push(2, 3); }
+                if (enable_shockwave) { availableEffects.push(6); }
+                if (enable_blink) { availableEffects.push(5); }
+                if (enable_glitch) { availableEffects.push(7); }
+                
+                if (availableEffects.length > 0) {
+                    other_effect_cycler = (other_effect_cycler + 1) % availableEffects.length;
+                    effect_idx = availableEffects[other_effect_cycler];
+                    effect_progress = 0;
+                }
+            }
+        }
+    }
+
+    if (effect_progress < 1) {
+        effect_progress += 0.5 * deltaTime; 
+    } else {
+        effect_progress = 1.0;
+    }
+
+    for (let y = 0; y < canvasHeight; y++) {
+        for (let x = 0; x < canvasWidth; x++) {
+            ctx.fillStyle = getColor(x, y, canvasWidth, canvasHeight);
+            ctx.fillRect(x, y, 1, 1);
+        }
+    }
+    
+    window.requestAnimationFrame(update);
+}
+
+window.requestAnimationFrame(update);
+
+</script>
+</html>
