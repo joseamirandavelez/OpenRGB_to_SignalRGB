@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gif Player</title>
+    <meta description="Use GIFs to create your own effect.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+</head>
+
+<body style="margin: 0; padding: 0; background-color: black;">
+    <canvas id="gifplayer-canvas" width="320" height="200" style="width: 100%; height: 100%;"></canvas>
+    
+    <div style="position: absolute; top: 10px; left: 10px; z-index: 10; font-family: sans-serif; color: white; background-color: rgba(0,0,0,0.5); padding: 5px; border-radius: 5px;">
+        <label for="gif-input" style="cursor: pointer; padding: 8px 12px; background-color: #333; border: 1px solid #555; border-radius: 4px;">
+            Choose GIF File
+        </label>
+        <input type="file" id="gif-input" accept=".gif" style="display: none;">
+        <p id="file-name" style="margin-top: 5px; font-size: 12px;"></p>
+    </div>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('gifplayer-canvas');
+const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
+
+const fileInput = document.getElementById('gif-input');
+const fileNameLabel = document.getElementById('file-name');
+const gifImage = new Image(); // Create an image element to hold our GIF
+
+// -------------------------------------------------------------------
+// GIF LOADING LOGIC
+// -------------------------------------------------------------------
+
+fileInput.addEventListener('change', (event) => {
+    const file = event.target.files[0];
+    if (file && file.type === "image/gif") {
+        const reader = new FileReader();
+        
+        reader.onload = (e) => {
+            // Set the image source to the loaded GIF data.
+            // The browser will handle the animation automatically.
+            gifImage.src = e.target.result;
+            fileNameLabel.textContent = `Playing: ${file.name}`;
+        };
+        
+        reader.readAsDataURL(file);
+    } else {
+        fileNameLabel.textContent = "Please select a valid .gif file.";
+        gifImage.src = ""; // Clear the image if the file is invalid
+    }
+});
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+function update() {
+    // Clear the canvas
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    
+    // If a GIF has been loaded and is ready to be drawn
+    if (gifImage.src && gifImage.complete) {
+        // Draw the current frame of the GIF onto the canvas.
+        // The browser updates the gifImage element on its own animation timer.
+        // We just need to copy it to the canvas on every SignalRGB frame.
+        ctx.drawImage(gifImage, 0, 0, canvasWidth, canvasHeight);
+    }
+    
+    requestAnimationFrame(update);
+}
+
+// Initial call to start the animation
+requestAnimationFrame(update);
+
+</script>
+</html>

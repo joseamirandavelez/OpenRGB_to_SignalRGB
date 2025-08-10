@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Noise Map</title>
+    <meta description="Floor is lava.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+    <meta property="speed" label="Global Speed" type="number" min="1" max="100" default="50">
+    <meta property="motion" label="Motion" type="list" values="Up,Down,Left,Right" default="Up">
+    <meta property="motion_speed" label="Motion Speed" type="number" min="0" max="100" default="10">
+    <meta property="colors_mode" label="Color Mode" type="list" values="Rainbow,Inverse Rainbow,Custom Gradient" default="Rainbow">
+    
+    <meta property="frequency" label="Frequency" type="number" min="1" max="5000" default="1200">
+    <meta property="amplitude" label="Amplitude" type="number" min="1" max="50000" default="39000">
+    <meta property="lacunarity" label="Lacunarity" type="number" min="1" max="50000" default="7500">
+    <meta property="persistence" label="Persistence" type="number" min="1" max="50000" default="5000">
+    <meta property="octaves" label="Octaves" type="number" min="1" max="20" default="2">
+
+    <meta property="color1" label="Color 1" type="color" default="#ff5500">
+    <meta property="color2" label="Color 2" type="color" default="#ffc800">
+    <meta property="color3" label="Color 3" type="color" default="#c80000">
+    <meta property="color4" label="Color 4" type="color" default="#ff5500">
+</head>
+
+<body style="margin: 0; padding: 0;">
+    <canvas id="noisemap-canvas" width="320" height="200"></canvas>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('noisemap-canvas');
+const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
+
+const gradientCanvas = document.createElement('canvas');
+gradientCanvas.width = 256;
+gradientCanvas.height = 1;
+const gradientCtx = gradientCanvas.getContext('2d', { willReadFrequently: true });
+let gradientData = null;
+
+let progress = 0.0;
+
+// -------------------------------------------------------------------
+// SIMPLEX NOISE ALGORITHM
+// A standalone implementation is needed as this isn't native to JS.
+// -------------------------------------------------------------------
+const SimplexNoise = (function() {
+    const F2 = 0.5 * (Math.sqrt(3.0) - 1.0), G2 = (3.0 - Math.sqrt(3.0)) / 6.0;
+    const F3 = 1.0 / 3.0, G3 = 1.0 / 6.0;
+    const grad3 = new Float32Array([1, 1, 0, -1, 1, 0, 1, -1, 0, -1, -1, 0, 1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0, -1, 0, 1, 1, 0, -1, 1, 0, 1, -1, 0, -1, -1]);
+    const p = new Uint8Array(256);
+    for (let i = 0; i < 256; i++) p[i] = i;
+    for (let i = 255; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; }
+    const perm = new Uint8Array(512);
+    const permMod12 = new Uint8Array(512);
+    for (let i = 0; i < 512; i++) { perm[i] = p[i & 255]; permMod12[i] = perm[i] % 12; }
+    
+    return {
+        noise3D: function(xin, yin, zin) {
+            let n0, n1, n2, n3;
+            const s = (xin + yin + zin) * F3;
+            const i = Math.floor(xin + s), j = Math.floor(yin + s), k = Math.floor(zin + s);
+            const t = (i + j + k) * G3;
+            const X0 = i - t, Y0 = j - t, Z0 = k - t;
+            const x0 = xin - X0, y0 = yin - Y0, z0 = zin - Z0;
+            let i1, j1, k1, i2, j2, k2;
+            if (x0 >= y0) {
+                if (y0 >= z0) { i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 1; k2 = 0; }
+                else if (x0 >= z0) { i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 0; k2 = 1; }
+                else { i1 = 0; j1 = 0; k1 = 1; i2 = 1; j2 = 0; k2 = 1; }
+            } else {
+                if (y0 < z0) { i1 = 0; j1 = 0; k1 = 1; i2 = 0; j2 = 1; k2 = 1; }
+                else if (x0 < z0) { i1 = 0; j1 = 1; k1 = 0; i2 = 0; j2 = 1; k2 = 1; }
+                else { i1 = 0; j1 = 1; k1 = 0; i2 = 1; j2 = 1; k2 = 0; }
+            }
+            const x1 = x0 - i1 + G3, y1 = y0 - j1 + G3, z1 = z0 - k1 + G3;
+            const x2 = x0 - i2 + 2.0 * G3, y2 = y0 - j2 + 2.0 * G3, z2 = z0 - k2 + 2.0 * G3;
+            const x3 = x0 - 1.0 + 3.0 * G3, y3 = y0 - 1.0 + 3.0 * G3, z3 = z0 - 1.0 + 3.0 * G3;
+            const ii = i & 255, jj = j & 255, kk = k & 255;
+            const gi0 = permMod12[ii + perm[jj + perm[kk]]];
+            const gi1 = permMod12[ii + i1 + perm[jj + j1 + perm[kk + k1]]];
+            const gi2 = permMod12[ii + i2 + perm[jj + j2 + perm[kk + k2]]];
+            const gi3 = permMod12[ii + 1 + perm[jj + 1 + perm[kk + 1]]];
+            let t0 = 0.6 - x0 * x0 - y0 * y0 - z0 * z0;
+            if (t0 < 0) n0 = 0.0;
+            else { t0 *= t0; n0 = t0 * t0 * (grad3[gi0] * x0 + grad3[gi0 + 1] * y0 + grad3[gi0 + 2] * z0); }
+            let t1 = 0.6 - x1 * x1 - y1 * y1 - z1 * z1;
+            if (t1 < 0) n1 = 0.0;
+            else { t1 *= t1; n1 = t1 * t1 * (grad3[gi1] * x1 + grad3[gi1 + 1] * y1 + grad3[gi1 + 2] * z1); }
+            let t2 = 0.6 - x2 * x2 - y2 * y2 - z2 * z2;
+            if (t2 < 0) n2 = 0.0;
+            else { t2 *= t2; n2 = t2 * t2 * (grad3[gi2] * x2 + grad3[gi2 + 1] * y2 + grad3[gi2 + 2] * z2); }
+            let t3 = 0.6 - x3 * x3 - y3 * y3 - z3 * z3;
+            if (t3 < 0) n3 = 0.0;
+            else { t3 *= t3; n3 = t3 * t3 * (grad3[gi3] * x3 + grad3[gi3 + 1] * y3 + grad3[gi3 + 2] * z3); }
+            return 32.0 * (n0 + n1 + n2 + n3);
+        },
+        fractal: function(octaves, x, y, z) {
+            let val = 0;
+            let freq = frequency/10000, amp = amplitude/10000;
+            const lac = lacunarity/10000, per = persistence/10000;
+            for(let i = 0; i < octaves; i++) {
+                val += this.noise3D(x * freq, y * freq, z * freq) * amp;
+                freq *= lac;
+                amp *= per;
+            }
+            return val;
+        }
+    };
+})();
+
+// -------------------------------------------------------------------
+// HELPER FUNCTIONS
+// -------------------------------------------------------------------
+
+function generateGradient() {
+    let colors = [color1, color2, color3, color4].filter(c => c && c !== "#000000");
+    if (colors.length < 2) colors = ["#ff0000", "#0000ff"];
+
+    const grad = gradientCtx.createLinearGradient(0, 0, gradientCanvas.width, 0);
+    const step = 1.0 / (colors.length - 1);
+    for (let i = 0; i < colors.length; i++) {
+        grad.addColorStop(i * step, colors[i]);
+    }
+    gradientCtx.fillStyle = grad;
+    gradientCtx.fillRect(0, 0, gradientCanvas.width, 1);
+    gradientData = gradientCtx.getImageData(0, 0, gradientCanvas.width, 1).data;
+}
+
+// -------------------------------------------------------------------
+// EFFECT LOGIC
+// -------------------------------------------------------------------
+
+function getColor(x, y) {
+    let x_shift = 0, y_shift = 0;
+    const motion_val = motion_speed * progress;
+    switch (motion) {
+        case "Up": y_shift = motion_val; break;
+        case "Down": y_shift = -motion_val; break;
+        case "Left": x_shift = motion_val; break;
+        case "Right": x_shift = -motion_val; break;
+    }
+    
+    // Get the noise value for this coordinate. It's in the range -1 to 1.
+    const value = SimplexNoise.fractal(octaves, x + x_shift, y + y_shift, progress);
+    
+    // Normalize to 0-1 range
+    const frac = (1 + value) * 0.5;
+
+    switch (colors_mode) {
+        case "Rainbow":
+            return `hsl(${360 * frac}, 100%, 50%)`;
+        case "Inverse Rainbow":
+            return `hsl(${360 - 360 * frac}, 100%, 50%)`;
+        case "Custom Gradient":
+            if (!gradientData) return 'rgb(0,0,0)';
+            const gradIndex = Math.floor(frac * (gradientCanvas.width - 1)) * 4;
+            return `rgb(${gradientData[gradIndex]}, ${gradientData[gradIndex+1]}, ${gradientData[gradIndex+2]})`;
+    }
+    return 'rgb(0,0,0)';
+}
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+let lastTime = 0;
+let lastColorSettings = "";
+function update(currentTime) {
+    const deltaTime = (currentTime - lastTime) / 1000;
+    lastTime = currentTime;
+
+    if (isNaN(deltaTime)) {
+        requestAnimationFrame(update);
+        return;
+    }
+
+    if (colors_mode === "Custom Gradient") {
+        const currentSettings = color1 + color2 + color3 + color4;
+        if(currentSettings !== lastColorSettings) {
+            generateGradient();
+            lastColorSettings = currentSettings;
+        }
+    }
+
+    progress += 0.1 * speed * deltaTime;
+    
+    // Render
+    for (let y = 0; y < canvasHeight; y++) {
+        for (let x = 0; x < canvasWidth; x++) {
+            ctx.fillStyle = getColor(x, y);
+            ctx.fillRect(x, y, 1, 1);
+        }
+    }
+    
+    requestAnimationFrame(update);
+}
+
+// Initial call
+requestAnimationFrame(update);
+
+</script>
+</html>

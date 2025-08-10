@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Audio Bubbles</title>
+    <meta description="Expanding bubbles of light are triggered by your audio.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+    <meta property="trigger" label="Volume Trigger" type="number" min="1" max="100" default="30">
+    <meta property="max_bubbles" label="Max Bubbles" type="number" min="1" max="32" default="8">
+    <meta property="speed" label="Speed" type="number" min="1" max="1000" default="50">
+    <meta property="max_expansion" label="Max Expansion" type="number" min="1" max="1000" default="100">
+    <meta property="bubbles_thickness" label="Bubbles Thickness" type="number" min="1" max="200" default="10">
+    <meta property="spawnMode" label="Bubbles Spawn" type="list" values="Random XY,Random X,Random Y,Center" default="Random XY">
+    <meta property="preset" label="Color Preset" type="list" values="Unicorn Vomit,Borealis,Ocean,Pink/Blue,Pink/Gold,Pulse,Purple/Orange,LightBlue/Purple,Police Beacon,Seabed,Sunset,Vaporwave" default="Unicorn Vomit">
+</head>
+
+<body style="margin: 0; padding: 0;">
+    <canvas id="audiobubbles-canvas" width="320" height="200"></canvas>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('audiobubbles-canvas');
+const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
+
+// Gradient canvas for bubble colors
+const gradientCanvas = document.createElement('canvas');
+gradientCanvas.width = 200; // FFT size from SignalRGB
+gradientCanvas.height = 1;
+// OPTIMIZED: Added willReadFrequently to address the performance warning.
+const gradientCtx = gradientCanvas.getContext('2d', { willReadFrequently: true });
+
+let bubbles = []; // Array to hold active bubble objects
+let gradientData = null; // Holds the color data for the current gradient
+
+const presets = {
+    "Unicorn Vomit": ["#ff0000","#ff00e6","#0000ff","#00b3ff","#00ff51","#eaff00","#ffb300","#ff0000"],
+    "Borealis": ["#14e81e","#00ea8d","#017ed5","#b53dff","#8d00c4","#14e81e"],
+    "Ocean": ["#00007f","#0000ff","#00ffff","#00aaff","#00007f"],
+    "Pink/Blue": ["#fe00c5","#00c5ff","#00c5ff","#fe00c5"],
+    "Pink/Gold": ["#fee000","#fe00fe","#fe00fe","#fee000"],
+    "Pulse": ["#ff5500","#000000","#000000","#000000","#ff5500"],
+    "Purple/Orange": ["#ff2100","#aa00ff","#aa00ff","#ff2100","#ff2100","#ff2100"],
+    "LightBlue/Purple": ["#03fffa","#55007f","#55007f","#03fffa"],
+    "Police Beacon": ["#ff0000","#0000ff","#0000ff","#ff0000","#ff0000"],
+    "Seabed": ["#00ff00","#0032ff","#0032ff","#00ff00","#00ff00"],
+    "Sunset": ["#ff2100","#ab006d","#c01c52","#d53737","#ea531b","#ff6e00","#ff0000","#ff2100"],
+    "Vaporwave": ["#FF71CE","#B967FF","#01CDFE","#05FFA1","#FFFB96","#FF71CE"],
+};
+
+// -------------------------------------------------------------------
+// COLOR UTILITIES & HELPERS
+// -------------------------------------------------------------------
+
+function screenBlend(pixel, color) {
+    const r = 1 - (1 - pixel[0] / 255) * (1 - color[0] / 255);
+    const g = 1 - (1 - pixel[1] / 255) * (1 - color[1] / 255);
+    const b = 1 - (1 - pixel[2] / 255) * (1 - color[2] / 255);
+    return [r * 255, g * 255, b * 255];
+}
+
+function generateGradient(presetName) {
+    const colors = presets[presetName];
+    if (!colors) return;
+
+    const grad = gradientCtx.createLinearGradient(0, 0, gradientCanvas.width, 0);
+    const step = 1.0 / (colors.length - 1);
+    for (let i = 0; i < colors.length; i++) {
+        grad.addColorStop(i * step, colors[i]);
+    }
+
+    gradientCtx.fillStyle = grad;
+    gradientCtx.fillRect(0, 0, gradientCanvas.width, 1);
+}
+
+// -------------------------------------------------------------------
+// BUBBLE LOGIC
+// -------------------------------------------------------------------
+
+function triggerBubbles(audioData) {
+    const triggerValue = trigger / 100.0;
+    const occupiedFrequencies = new Set(bubbles.map(b => b.freq_id));
+    
+    const candidates = [];
+    for (let i = 0; i < audioData.length; i++) {
+        const amp = Math.abs(audioData[i]) / 128.0;
+        if (amp >= triggerValue && !occupiedFrequencies.has(i)) {
+            candidates.push({ amp: amp, freq_id: i });
+        }
+    }
+
+    candidates.sort((a, b) => b.amp - a.amp);
+    for (const candidate of candidates) {
+        if (bubbles.length >= max_bubbles) break;
+        
+        const amp = Math.max(0.2, Math.min(0.8, candidate.amp));
+        let center = { x: 0.5, y: 0.5 };
+
+        switch(spawnMode) {
+            case "Random XY": center = { x: Math.random(), y: Math.random() }; break;
+            case "Random X": center = { x: Math.random(), y: 1.0 - (candidate.freq_id / 200.0) }; break;
+            case "Random Y": center = { x: candidate.freq_id / 200.0, y: Math.random() }; break;
+            case "Center": break;
+        }
+
+        bubbles.push({
+            amp: amp, center: center, progress: 0,
+            speed: 1.0 / amp, freq_id: candidate.freq_id
+        });
+        occupiedFrequencies.add(candidate.freq_id);
+    }
+}
+
+function expandBubbles(deltaTime) {
+    for (const bubble of bubbles) {
+        bubble.progress += 0.1 * (speed / 10) * bubble.speed * deltaTime * 60;
+    }
+}
+
+function cleanupBubbles() {
+    bubbles = bubbles.filter(bubble => bubble.progress < (max_expansion * bubble.amp));
+}
+
+function getColor(x, y, w, h) {
+    let finalPixel = [0, 0, 0];
+    if (!gradientData) return 'rgb(0,0,0)'; // Failsafe if gradient data isn't ready
+
+    for (const bubble of bubbles) {
+        const distance = Math.sqrt(Math.pow(w * bubble.center.x - x, 2) + Math.pow(h * bubble.center.y - y, 2));
+        const shallow = Math.abs(distance - bubble.progress) / (0.1 * bubbles_thickness * bubble.amp);
+        const value = Math.min(255, 255 * (1 / Math.pow(shallow, 3)));
+        
+        if (value > 1) {
+            const progress_norm = Math.min(1, bubble.progress / (max_expansion * bubble.amp));
+            const brightness = value * Math.pow(1.0 - progress_norm, 0.5);
+
+            const gradIndex = bubble.freq_id * 4;
+            const r = gradientData[gradIndex];
+            const g = gradientData[gradIndex + 1];
+            const b = gradientData[gradIndex + 2];
+            
+            const bubbleColor = [r * (brightness / 255), g * (brightness / 255), b * (brightness / 255)];
+            
+            finalPixel = screenBlend(finalPixel, bubbleColor);
+        }
+    }
+
+    return `rgb(${finalPixel[0]}, ${finalPixel[1]}, ${finalPixel[2]})`;
+}
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+let lastTime = 0;
+let lastPreset = "";
+function update(currentTime) {
+    const deltaTime = (currentTime - lastTime) / 1000;
+    lastTime = currentTime;
+
+    if (isNaN(deltaTime)) {
+        requestAnimationFrame(update);
+        return;
+    }
+    
+    // Regenerate gradient if the preset has changed
+    if (preset !== lastPreset) {
+        generateGradient(preset);
+        lastPreset = preset;
+    }
+    
+    // OPTIMIZED: Read the gradient data only ONCE per frame
+    gradientData = gradientCtx.getImageData(0, 0, gradientCanvas.width, 1).data;
+
+    const audioData = new Int8Array(engine.audio.freq);
+
+    expandBubbles(deltaTime);
+    triggerBubbles(audioData);
+    cleanupBubbles();
+    
+    for (let y = 0; y < canvasHeight; y++) {
+        for (let x = 0; x < canvasWidth; x++) {
+            ctx.fillStyle = getColor(x, y, canvasWidth, canvasHeight);
+            ctx.fillRect(x, y, 1, 1);
+        }
+    }
+    
+    requestAnimationFrame(update);
+}
+
+// Initial call
+generateGradient("Unicorn Vomit");
+requestAnimationFrame(update);
+
+</script>
+</html>

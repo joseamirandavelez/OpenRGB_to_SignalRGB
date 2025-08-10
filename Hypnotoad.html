@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hypnotoad</title>
+    <meta description="You wont escape this.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+    <meta property="animation_speed" label="Animation Speed" type="number" min="10" max="100" default="50">
+    <meta property="color_rotation_speed" label="Rotation Speed" type="number" min="10" max="100" default="20">
+    <meta property="spacing" label="Spacing" type="number" min="1" max="10" default="5">
+    <meta property="thickness" label="Thickness" type="number" min="1" max="10" default="5">
+    <meta property="center_x" label="X Position (%)" type="number" min="0" max="100" default="50">
+    <meta property="center_y" label="Y Position (%)" type="number" min="0" max="100" default="50">
+    <meta property="animation_direction" label="Animation Direction" type="list" values="To the Inside,To the Outside" default="To the Inside">
+    <meta property="color_rotation_direction" label="Rotation Direction" type="list" values="Clockwise,Counter-clockwise" default="Clockwise">
+    
+    <meta property="color_mode" label="Color Mode" type="list" values="Rainbow,Custom" default="Rainbow">
+    <meta property="color1" label="Color 1" type="color" default="#ff0000">
+    <meta property="color2" label="Color 2" type="color" default="#00ff00">
+    <meta property="color3" label="Color 3" type="color" default="#0000ff">
+    <meta property="color4" label="Color 4" type="color" default="#ff0000">
+</head>
+
+<body style="margin: 0; padding: 0;">
+    <canvas id="hypnotoad-canvas" width="320" height="200"></canvas>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('hypnotoad-canvas');
+const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
+
+const gradientCanvas = document.createElement('canvas');
+gradientCanvas.width = 256;
+gradientCanvas.height = 1;
+const gradientCtx = gradientCanvas.getContext('2d', { willReadFrequently: true });
+let gradientData = null;
+
+let progress = 1000.0;
+
+// -------------------------------------------------------------------
+// HELPER FUNCTIONS
+// -------------------------------------------------------------------
+
+function generateGradient() {
+    let colors = [color1, color2, color3, color4].filter(c => c && c !== "#000000");
+    if (colors.length < 2) colors = ["#ff0000", "#0000ff"];
+
+    const grad = gradientCtx.createLinearGradient(0, 0, gradientCanvas.width, 0);
+    const step = 1.0 / (colors.length - 1);
+    for (let i = 0; i < colors.length; i++) {
+        grad.addColorStop(i * step, colors[i]);
+    }
+    gradientCtx.fillStyle = grad;
+    gradientCtx.fillRect(0, 0, gradientCanvas.width, 1);
+    gradientData = gradientCtx.getImageData(0, 0, gradientCanvas.width, 1).data;
+}
+
+// -------------------------------------------------------------------
+// EFFECT LOGIC
+// -------------------------------------------------------------------
+
+function getColor(x, y, w, h) {
+    const centerX = w * (center_x / 100.0);
+    const centerY = h * (center_y / 100.0);
+
+    const anim_dir = (animation_direction === "To the Inside") ? 1 : -1;
+    const color_rot_dir = (color_rotation_direction === "Clockwise") ? -1 : 1;
+
+    const anim_mult = 0.01 * animation_speed * anim_dir;
+    const color_mult = 0.01 * color_rotation_speed * color_rot_dir;
+
+    const angle = Math.atan2(y - centerY, x - centerX) * 180 / Math.PI;
+    const distance = Math.sqrt(Math.pow(centerX - x, 2) + Math.pow(centerY - y, 2));
+
+    // This formula creates the pulsating ring pattern
+    const value_wave = Math.cos(anim_mult * distance / (0.1 * spacing) + progress);
+    const brightness = Math.pow((value_wave + 1) * 0.5, (11 - thickness));
+
+    if (color_mode === "Rainbow") {
+        const hue = (angle + distance + progress * color_mult * color_rotation_speed) % 360;
+        return `hsl(${hue}, 100%, ${brightness * 50}%)`;
+    } else { // Custom color mode
+        if (!gradientData) return 'rgb(0,0,0)';
+        const color_lookup = (angle + distance + progress * color_mult * color_rotation_speed) % 360 / 360.0;
+        const gradIndex = Math.floor(Math.abs(color_lookup) * (gradientCanvas.width - 1)) * 4;
+        
+        const r = gradientData[gradIndex] * brightness;
+        const g = gradientData[gradIndex + 1] * brightness;
+        const b = gradientData[gradIndex + 2] * brightness;
+        return `rgb(${r}, ${g}, ${b})`;
+    }
+}
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+let lastTime = 0;
+let lastColorSettings = "";
+function update(currentTime) {
+    const deltaTime = (currentTime - lastTime) / 1000;
+    lastTime = currentTime;
+
+    if (isNaN(deltaTime)) {
+        requestAnimationFrame(update);
+        return;
+    }
+
+    // Update animation progress
+    progress += 0.1 * (speed / 10.0) * deltaTime * 60;
+
+    // Regenerate custom gradient only when colors change
+    if(color_mode === "Custom") {
+        const currentSettings = color1 + color2 + color3 + color4;
+        if(currentSettings !== lastColorSettings) {
+            generateGradient();
+            lastColorSettings = currentSettings;
+        }
+    }
+
+    // Render
+    for (let y = 0; y < canvasHeight; y++) {
+        for (let x = 0; x < canvasWidth; x++) {
+            ctx.fillStyle = getColor(x, y, canvasWidth, canvasHeight);
+            ctx.fillRect(x, y, 1, 1);
+        }
+    }
+    
+    requestAnimationFrame(update);
+}
+
+// Initial call
+requestAnimationFrame(update);
+
+</script>
+</html>

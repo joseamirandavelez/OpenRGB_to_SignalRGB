@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Policing</title>
+    <meta description="A back and forth effect motion with a flash before changing direction.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+    <meta property="speed" label="Speed" type="number" min="1" max="100" default="50">
+    <meta property="width" label="Width" type="number" min="1" max="100" default="20">
+    <meta property="random_colors" label="Random Colors" type="boolean" default="false">
+    <meta property="user_color" label="Color" type="color" default="#ff0000">
+</head>
+
+<body style="margin: 0; padding: 0;">
+    <canvas id="policing-canvas" width="320" height="200"></canvas>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('policing-canvas');
+const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
+
+// Effect state variables
+let progress = 0.0;
+let last_step = false;
+let activeColor = [255, 0, 0];
+
+// -------------------------------------------------------------------
+// COLOR UTILITIES
+// -------------------------------------------------------------------
+
+function hexToRgb(hex) {
+    if (!hex) return [255, 0, 0];
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return [r, g, b];
+}
+
+function randomRgb() {
+    return [Math.random() * 255, Math.random() * 255, Math.random() * 255];
+}
+
+function applyBrightness(rgb, brightness) {
+    return [rgb[0] * brightness, rgb[1] * brightness, rgb[2] * brightness];
+}
+
+/** Linearly interpolates between two colors */
+function lerpColor(c1, c2, factor) {
+    const r = c1[0] * (1 - factor) + c2[0] * factor;
+    const g = c1[1] * (1 - factor) + c2[1] * factor;
+    const b = c1[2] * (1 - factor) + c2[2] * factor;
+    return [r, g, b];
+}
+
+// -------------------------------------------------------------------
+// EFFECT LOGIC
+// -------------------------------------------------------------------
+
+function getColor(x, w, p_step, step) {
+    const scanner_width = Math.max(1.5 / w, width / 100.0);
+    const x_step = p_step * (1.0 + 4.0 * scanner_width) - 1.5 * scanner_width;
+    const x_norm = x / (w - 1);
+    const dist = x_step - x_norm;
+
+    const off = [0, 0, 0];
+
+    // Fade the head of the scanner
+    if (dist < 0) {
+        const brightness = Math.max(0.0, Math.min(1.0, (scanner_width + dist) / scanner_width));
+        return step ? applyBrightness(off, brightness) : applyBrightness(activeColor, brightness);
+    }
+
+    // Fade the tail of the scanner
+    if (dist > scanner_width) {
+        const brightness = Math.max(0.0, Math.min(1.0, 1.0 - ((dist - scanner_width) / scanner_width)));
+        return step ? applyBrightness(activeColor, brightness) : applyBrightness(off, brightness);
+    }
+    
+    // Interpolate colors within the main body
+    const factor = Math.min(1.0, Math.max(0.0, (scanner_width - dist) / scanner_width));
+    const finalColor = step ? lerpColor(activeColor, off, factor) : lerpColor(off, activeColor, factor);
+    
+    return `rgb(${finalColor[0]}, ${finalColor[1]}, ${finalColor[2]})`;
+}
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+let lastTime = 0;
+function update(currentTime) {
+    const deltaTime = (currentTime - lastTime) / 1000;
+    lastTime = currentTime;
+
+    if (isNaN(deltaTime)) {
+        requestAnimationFrame(update);
+        return;
+    }
+
+    // --- Update State ---
+    progress += 0.01 * speed * deltaTime * 60;
+
+    // `p` is the fractional part of progress, representing one full back-and-forth cycle
+    const p = progress % 1.0;
+    // `step` determines the direction: true for left-to-right, false for right-to-left
+    const step = p < 0.5;
+    // `p_step` is the progress (0 to 1) within the current directional pass
+    const p_step = step ? 2.0 * p : 2.0 * (1.0 - p);
+    
+    const is_flipping = (last_step !== step);
+
+    if (is_flipping) {
+        if (random_colors) {
+            activeColor = randomRgb();
+        } else {
+            activeColor = hexToRgb(user_color);
+        }
+    }
+    last_step = step;
+
+    // --- Render ---
+    if (is_flipping) {
+        // On direction change, flash the whole canvas
+        ctx.fillStyle = `rgb(${activeColor[0]}, ${activeColor[1]}, ${activeColor[2]})`;
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    } else {
+        // Otherwise, draw the moving scanner
+        for (let x = 0; x < canvasWidth; x++) {
+            const colColor = getColor(x, canvasWidth, p_step, step);
+            ctx.fillStyle = colColor;
+            ctx.fillRect(x, 0, 1, canvasHeight);
+        }
+    }
+    
+    requestAnimationFrame(update);
+}
+
+// Initial color selection and animation start
+activeColor = random_colors ? randomRgb() : hexToRgb(user_color);
+requestAnimationFrame(update);
+
+</script>
+</html>

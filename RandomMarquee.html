@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Random Marquee</title>
+    <meta description="A simple Random Marquee for your devices.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+    <meta property="speed" label="Speed" type="number" min="1" max="200" default="50">
+    <meta property="random_colors" label="Random Colors" type="boolean" default="true">
+    <meta property="user_color" label="Color" type="color" default="#ffffff">
+</head>
+
+<body style="margin: 0; padding: 0;">
+    <canvas id="randommarquee-canvas" width="320" height="200"></canvas>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('randommarquee-canvas');
+const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
+
+// Effect state variables that get randomized each cycle
+let spacing = 1;
+let speed_mult = 0.5;
+let progress_mult = 0.5;
+let direction = false; // false = right, true = left
+let activeColor = 'hsl(0, 100%, 50%)';
+
+let progress = 0.0;
+let last_progress_int = 0;
+
+// -------------------------------------------------------------------
+// HELPER FUNCTIONS
+// -------------------------------------------------------------------
+
+/** Generates a random number within a range */
+function custom_rand(min, max) {
+    return Math.random() * (max - min) + min;
+}
+
+/** Randomizes all effect parameters for a new cycle */
+function randomizeParameters() {
+    speed_mult = custom_rand(0.5, 1.5);
+    progress_mult = custom_rand(0.5, 1.5);
+    direction = Math.random() < 0.5;
+    spacing = 1 + Math.floor(Math.random() * 3);
+
+    if (random_colors) {
+        const hue = Math.random() * 360;
+        activeColor = `hsl(${hue}, 100%, 50%)`;
+    } else {
+        activeColor = user_color;
+    }
+}
+
+// -------------------------------------------------------------------
+// EFFECT LOGIC
+// -------------------------------------------------------------------
+
+function getColor(x) {
+    const dir_mult = direction ? -1 : 1;
+    const position = Math.floor(dir_mult * 20.0 * progress * speed_mult);
+
+    // Check if the pixel should be lit based on its position, the scrolling
+    // progress, and the randomized parameters for this cycle.
+    if ((x + position) % (2 * spacing) === 0) {
+        return activeColor;
+    }
+    
+    return 'rgb(0,0,0)';
+}
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+let lastTime = 0;
+function update(currentTime) {
+    const deltaTime = (currentTime - lastTime) / 1000;
+    lastTime = currentTime;
+
+    if (isNaN(deltaTime)) {
+        requestAnimationFrame(update);
+        return;
+    }
+
+    // --- Update State ---
+    
+    // Animate the scrolling progress
+    progress += 0.05 * (speed/10) * progress_mult * deltaTime * 60;
+    const current_progress_int = Math.floor(progress);
+    
+    // Check if a full cycle has passed
+    if (last_progress_int !== current_progress_int) {
+        last_progress_int = current_progress_int;
+        // Randomize parameters for the new cycle
+        randomizeParameters();
+    }
+    
+    // --- Render ---
+    // This is a horizontal effect, so we can calculate each column's color once
+    for (let x = 0; x < canvasWidth; x++) {
+        const colColor = getColor(x);
+        ctx.fillStyle = colColor;
+        ctx.fillRect(x, 0, 1, canvasHeight);
+    }
+    
+    requestAnimationFrame(update);
+}
+
+// Initial randomization and animation start
+randomizeParameters();
+requestAnimationFrame(update);
+
+</script>
+</html>

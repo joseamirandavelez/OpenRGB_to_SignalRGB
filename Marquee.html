@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Marquee</title>
+    <meta description="A simple marquee for your devices.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+    <meta property="speed" label="Speed" type="number" min="1" max="200" default="50">
+    <meta property="spacing" label="Spacing" type="number" min="2" max="20" default="5">
+    <meta property="random_colors" label="Random Colors" type="boolean" default="false">
+    <meta property="user_color" label="Color" type="color" default="#ffffff">
+</head>
+
+<body style="margin: 0; padding: 0;">
+    <canvas id="marquee-canvas" width="320" height="200"></canvas>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('marquee-canvas');
+const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
+
+// Effect state variables
+let progress = 0.0;
+let random_hue = 0;
+
+// -------------------------------------------------------------------
+// EFFECT LOGIC
+// -------------------------------------------------------------------
+
+function getColor(x) {
+    // Check if the current pixel should be lit based on its position,
+    // the scrolling progress, and the user-defined spacing.
+    if ((x + Math.floor(progress)) % spacing === 0) {
+        if (random_colors) {
+            // If random, use a cycling hue
+            return `hsl(${random_hue}, 100%, 50%)`;
+        } else {
+            // Otherwise, use the color from the color picker
+            return user_color;
+        }
+    }
+    
+    // If the pixel isn't lit, it's black
+    return 'rgb(0,0,0)';
+}
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+let lastTime = 0;
+function update(currentTime) {
+    const deltaTime = (currentTime - lastTime) / 1000;
+    lastTime = currentTime;
+
+    if (isNaN(deltaTime)) {
+        requestAnimationFrame(update);
+        return;
+    }
+
+    // --- Update State ---
+    
+    // Animate the scrolling progress
+    progress += 0.1 * speed * deltaTime * 60;
+
+    // If random colors are enabled, continuously cycle the hue
+    if (random_colors) {
+        random_hue = (random_hue + 1) % 360;
+    }
+    
+    // --- Render ---
+    // This is a horizontal effect, so we can calculate each column's color once
+    for (let x = 0; x < canvasWidth; x++) {
+        const colColor = getColor(x);
+        ctx.fillStyle = colColor;
+        ctx.fillRect(x, 0, 1, canvasHeight);
+    }
+    
+    requestAnimationFrame(update);
+}
+
+// Initial call
+requestAnimationFrame(update);
+
+</script>
+</html>

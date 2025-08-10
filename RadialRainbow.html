@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Radial Rainbow</title>
+    <meta description="Dive into the RGB tunnel.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+    <meta property="speed" label="Speed" type="number" min="1" max="200" default="100">
+    <meta property="frequency" label="Frequency" type="number" min="1" max="100" default="50">
+    <meta property="x_position" label="X Position (%)" type="number" min="0" max="100" default="50">
+    <meta property="y_position" label="Y Position (%)" type="number" min="0" max="100" default="50">
+    <meta property="shape" label="Shape" type="list" values="Circles,Squares" default="Circles">
+</head>
+
+<body style="margin: 0; padding: 0;">
+    <canvas id="radialrainbow-canvas" width="320" height="200"></canvas>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('radialrainbow-canvas');
+const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
+
+// Effect state variables
+let progress = 0.0;
+
+// -------------------------------------------------------------------
+// EFFECT LOGIC
+// -------------------------------------------------------------------
+
+function getColor(x, y, w, h) {
+    const centerX = w * (x_position / 100.0);
+    const centerY = h * (y_position / 100.0);
+    
+    let distance;
+
+    // Calculate distance based on the selected shape
+    if (shape === "Circles") {
+        // Euclidean distance for circles
+        distance = Math.sqrt(Math.pow(centerX - x, 2) + Math.pow(centerY - y, 2));
+    } else { // Squares
+        // Chebyshev distance for squares
+        distance = Math.max(Math.abs(centerY - y), Math.abs(centerX - x));
+    }
+    
+    // Calculate the hue based on the distance, frequency, and animation progress
+    const hue = (distance * (frequency * 0.5) - progress) % 360;
+    
+    // Use HSL color which maps directly to the calculated hue
+    return `hsl(${hue}, 100%, 50%)`;
+}
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+let lastTime = 0;
+function update(currentTime) {
+    const deltaTime = (currentTime - lastTime) / 1000;
+    lastTime = currentTime;
+
+    if (isNaN(deltaTime)) {
+        requestAnimationFrame(update);
+        return;
+    }
+    
+    // Update the progress variable to animate the rainbow outwards
+    progress += speed * deltaTime;
+    
+    // Render
+    for (let y = 0; y < canvasHeight; y++) {
+        for (let x = 0; x < canvasWidth; x++) {
+            ctx.fillStyle = getColor(x, y, canvasWidth, canvasHeight);
+            ctx.fillRect(x, y, 1, 1);
+        }
+    }
+    
+    requestAnimationFrame(update);
+}
+
+// Initial call
+requestAnimationFrame(update);
+
+</script>
+</html>

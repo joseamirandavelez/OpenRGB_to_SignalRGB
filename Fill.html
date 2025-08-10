@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fill</title>
+    <meta description="Progressively fills your devices with a defined color.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+    <meta property="speed" label="Speed" type="number" min="10" max="100" default="50">
+    <meta property="random_colors" label="Random Colors" type="boolean" default="true">
+    <meta property="user_color" label="Color" type="color" default="#ffffff">
+</head>
+
+<body style="margin: 0; padding: 0;">
+    <canvas id="fill-canvas" width="320" height="200"></canvas>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('fill-canvas');
+const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
+
+// Effect state variables
+let time = 0.0;
+let activeColor = [255, 255, 255]; // The color used for the current fill cycle
+
+// -------------------------------------------------------------------
+// HELPER FUNCTIONS
+// -------------------------------------------------------------------
+
+function hexToRgb(hex) {
+    if (!hex) return [255, 255, 255];
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return [r, g, b];
+}
+
+function randomRgb() {
+    return [Math.random() * 255, Math.random() * 255, Math.random() * 255];
+}
+
+function applyBrightness(rgb, brightness) {
+    return [rgb[0] * brightness, rgb[1] * brightness, rgb[2] * brightness];
+}
+
+// -------------------------------------------------------------------
+// EFFECT LOGIC
+// -------------------------------------------------------------------
+
+function getColor(x, w, progress, isFilling) {
+    if (isFilling) {
+        // This is the "fill" stage of the animation
+        const position = progress * w;
+        const distance = position - x;
+
+        if (distance > 1) {
+            // This pixel is fully behind the fill line, so it's solid
+            return `rgb(${activeColor[0]}, ${activeColor[1]}, ${activeColor[2]})`;
+        } else if (distance > 0) {
+            // This pixel is on the soft leading edge of the fill
+            const fadedColor = applyBrightness(activeColor, distance);
+            return `rgb(${fadedColor[0]}, ${fadedColor[1]}, ${fadedColor[2]})`;
+        } else {
+            // This pixel is ahead of the fill line, so it's off
+            return 'rgb(0,0,0)';
+        }
+    } else {
+        // This is the "fade out" stage of the animation
+        const brightness = 1 - progress;
+        const fadedColor = applyBrightness(activeColor, brightness);
+        return `rgb(${fadedColor[0]}, ${fadedColor[1]}, ${fadedColor[2]})`;
+    }
+}
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+let lastTime = 0;
+function update(currentTime) {
+    const deltaTime = (currentTime - lastTime) / 1000;
+    lastTime = currentTime;
+
+    if (isNaN(deltaTime)) {
+        requestAnimationFrame(update);
+        return;
+    }
+
+    // --- Update State ---
+    const old_progress = time % 1.0;
+    time += 0.01 * speed * deltaTime * 20; // Multiplier to match original speed feel
+    const progress = time % 1.0;
+
+    // A cycle completes when progress wraps around from ~1.0 back to ~0.0
+    if (old_progress > progress) {
+        // Pick a new color for the next cycle
+        if (random_colors) {
+            activeColor = randomRgb();
+        } else {
+            activeColor = hexToRgb(user_color);
+        }
+    }
+
+    // The animation is split into two stages based on the integer part of 'time'
+    const isFilling = Math.floor(time) % 2 === 0;
+
+    // --- Render ---
+    // This effect is horizontal, so we can calculate each column's color once
+    // and fill the entire column.
+    for (let x = 0; x < canvasWidth; x++) {
+        const colColor = getColor(x, canvasWidth, progress, isFilling);
+        ctx.fillStyle = colColor;
+        ctx.fillRect(x, 0, 1, canvasHeight);
+    }
+    
+    requestAnimationFrame(update);
+}
+
+// Initial color selection and first animation call
+activeColor = random_colors ? randomRgb() : hexToRgb(user_color);
+requestAnimationFrame(update);
+
+</script>
+</html>

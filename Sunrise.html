@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sunrise</title>
+    <meta description="Sunrise / Sunset effect.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+    <meta property="speed" label="Overall Speed" type="number" min="1" max="20" default="10">
+    <meta property="intensity" label="Intensity (%)" type="number" min="1" max="99" default="80">
+    <meta property="intensity_speed" label="Intensity Speed" type="number" min="1" max="100" default="10">
+    <meta property="radius" label="Radius" type="number" min="1" max="100" default="50">
+    <meta property="grow_speed" label="Grow Speed" type="number" min="1" max="50" default="10">
+    <meta property="motion" label="Motion" type="boolean" default="false">
+    <meta property="run_once" label="Run Only Once" type="boolean" default="false">
+
+    <meta property="color1" label="Color 1 (Sun)" type="color" default="#ffffff">
+    <meta property="color2" label="Color 2 (Corona)" type="color" default="#ffff00">
+    <meta property="color3" label="Color 3 (Atmosphere)" type="color" default="#ff0000">
+    <meta property="color4" label="Color 4 (Sky)" type="color" default="#000000">
+</head>
+
+<body style="margin: 0; padding: 0;">
+    <canvas id="sunrise-canvas" width="320" height="200"></canvas>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('sunrise-canvas');
+const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
+
+// A hidden canvas holds the pre-rendered gradient
+const gradientCanvas = document.createElement('canvas');
+gradientCanvas.width = 256; // Gradient resolution
+gradientCanvas.height = 1;
+const gradientCtx = gradientCanvas.getContext('2d', { willReadFrequently: true });
+let gradientData = null;
+
+// Effect state variables
+let time = 0.0;
+let progress = 0.0;
+let y_shift = -1.0;
+let has_run_once = false;
+
+// -------------------------------------------------------------------
+// HELPER FUNCTIONS
+// -------------------------------------------------------------------
+
+/** Generates the 4-stop gradient based on the current progress */
+function generateGradient() {
+    // The first color stop animates to create the intensity effect
+    const first_stop = Math.min(intensity / 100.0, Math.pow(progress, 0.1 * intensity_speed));
+    const second_stop = first_stop + (1 - first_stop) * 0.5;
+
+    const grad = gradientCtx.createLinearGradient(0, 0, gradientCanvas.width, 0);
+    grad.addColorStop(0, color1);
+    grad.addColorStop(first_stop, color2);
+    grad.addColorStop(second_stop, color3);
+    grad.addColorStop(1, color4);
+    
+    gradientCtx.fillStyle = grad;
+    gradientCtx.fillRect(0, 0, gradientCanvas.width, 1);
+    gradientData = gradientCtx.getImageData(0, 0, gradientCanvas.width, 1).data;
+}
+
+// -------------------------------------------------------------------
+// EFFECT LOGIC
+// -------------------------------------------------------------------
+
+function getColor(x, y, w, h) {
+    if (!gradientData) return 'rgb(0,0,0)';
+    
+    // The sun's radius grows based on the animation progress
+    const real_radius = (radius / 100.0) * w * Math.pow(progress, 0.1 * grow_speed);
+
+    const centerX = w * 0.5;
+    const centerY = h * 0.5;
+    
+    // If motion is enabled, the sun moves up and down
+    const motion_offset = motion ? centerY * y_shift : 0;
+    
+    const distance = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY - motion_offset, 2));
+    
+    // Normalize the distance to a 0.0-1.0 value to be used as a lookup coordinate
+    let percent = Math.min(1.0, distance / real_radius);
+    if (isNaN(percent)) percent = 1.0; // Avoid issues if radius is zero
+
+    // Map the coordinate to an index in our gradient data array
+    const gradIndex = Math.floor(percent * (gradientCanvas.width - 1)) * 4;
+
+    const r = gradientData[gradIndex];
+    const g = gradientData[gradIndex + 1];
+    const b = gradientData[gradIndex + 2];
+    
+    return `rgb(${r}, ${g}, ${b})`;
+}
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+let lastTime = 0;
+function update(currentTime) {
+    const deltaTime = (currentTime - lastTime) / 1000;
+    lastTime = currentTime;
+
+    if (isNaN(deltaTime)) {
+        requestAnimationFrame(update);
+        return;
+    }
+
+    // --- Update State ---
+    
+    // Stop updating if "Run Only Once" is checked and the animation has finished
+    if (run_once && has_run_once) {
+        requestAnimationFrame(update);
+        return;
+    }
+    
+    time += 0.1 * speed * deltaTime;
+
+    if (run_once) {
+        progress = Math.min(1.0, time);
+        y_shift = 0;
+        if (progress >= 1.0) has_run_once = true;
+    } else {
+        // Use a sine wave for a continuous looping animation
+        progress = 0.5 * (1 + Math.sin(time));
+        y_shift = -1 + 2 * progress;
+    }
+    
+    // The gradient must be regenerated every frame because its stops are animated
+    generateGradient();
+    
+    // --- Render ---
+    for (let y = 0; y < canvasHeight; y++) {
+        for (let x = 0; x < canvasWidth; x++) {
+            ctx.fillStyle = getColor(x, y, canvasWidth, canvasHeight);
+            ctx.fillRect(x, y, 1, 1);
+        }
+    }
+    
+    requestAnimationFrame(update);
+}
+
+// Initial call
+requestAnimationFrame(update);
+
+</script>
+</html>

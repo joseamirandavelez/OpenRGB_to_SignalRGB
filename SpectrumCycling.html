@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Spectrum Cycling</title>
+    <meta description="Goes through every solid color of the rainbow.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+    <meta property="speed" label="Speed" type="number" min="1" max="100" default="50">
+    <meta property="saturation" label="Saturation" type="number" min="0" max="100" default="100">
+</head>
+
+<body style="margin: 0; padding: 0;">
+    <canvas id="spectrumcycling-canvas" width="320" height="200"></canvas>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('spectrumcycling-canvas');
+const ctx = canvas.getContext('2d');
+
+// Effect state variables
+let progress = 0.0;
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+let lastTime = 0;
+function update(currentTime) {
+    const deltaTime = (currentTime - lastTime) / 1000;
+    lastTime = currentTime;
+
+    if (isNaN(deltaTime)) {
+        requestAnimationFrame(update);
+        return;
+    }
+
+    // --- Update State ---
+    
+    // Animate the hue value over time
+    progress += speed * deltaTime;
+    if (progress >= 360) {
+        progress -= 360; // Wrap the hue value
+    }
+    
+    // --- Render ---
+    
+    // Set the fill style using HSL color, which maps directly to our progress
+    // The canvas is filled with a single solid color.
+    ctx.fillStyle = `hsl(${progress}, ${saturation}%, 50%)`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    requestAnimationFrame(update);
+}
+
+// Initial call
+requestAnimationFrame(update);
+
+</script>
+</html>

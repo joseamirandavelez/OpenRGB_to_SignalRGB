@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Custom Marquee</title>
+    <meta description="Create your own marquee effect.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+    <meta property="speed" label="Speed" type="number" min="1" max="50" default="25">
+    
+    <meta property="color1" label="Color 1" type="color" default="#ff0000">
+    <meta property="color2" label="Color 2" type="color" default="#000000">
+    <meta property="color3" label="Color 3" type="color" default="#0000ff">
+    <meta property="color4" label="Color 4" type="color" default="#000000">
+    <meta property="color5" label="Color 5" type="color" default="#ffffff">
+    <meta property="color6" label="Color 6" type="color" default="#000000">
+    <meta property="color7" label="Color 7" type="color" default="#00ff00">
+    <meta property="color8" label="Color 8" type="color" default="#000000">
+
+</head>
+
+<body style="margin: 0; padding: 0;">
+    <canvas id="custommarquee-canvas" width="320" height="200"></canvas>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('custommarquee-canvas');
+const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
+
+// Effect state variables
+let progress = 0.0;
+let userColors = [];
+
+// -------------------------------------------------------------------
+// EFFECT LOGIC
+// -------------------------------------------------------------------
+
+function getColor(x) {
+    if (userColors.length === 0) {
+        return 'rgb(0,0,0)';
+    }
+    // Calculate the index in the color array based on the pixel's position and the scrolling progress
+    const index = (x + Math.floor(progress)) % userColors.length;
+    return userColors[index];
+}
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+let lastTime = 0;
+let lastColorSettings = "";
+function update(currentTime) {
+    const deltaTime = (currentTime - lastTime) / 1000;
+    lastTime = currentTime;
+
+    if (isNaN(deltaTime)) {
+        requestAnimationFrame(update);
+        return;
+    }
+
+    // Update the list of user colors only when they change
+    const currentColorSettings = color1+color2+color3+color4+color5+color6+color7+color8;
+    if(currentColorSettings !== lastColorSettings) {
+        userColors = [color1, color2, color3, color4, color5, color6, color7, color8]
+            .filter(c => c); // Filter out any empty/undefined colors
+        if(userColors.length === 0) userColors.push("#000000"); // Failsafe
+        lastColorSettings = currentColorSettings;
+    }
+    
+    // Animate the scrolling progress
+    progress += speed * deltaTime;
+
+    // Render to canvas
+    // This is a horizontal effect, so we calculate the color for each column once
+    // and fill the entire column with it.
+    for (let x = 0; x < canvasWidth; x++) {
+        const colColor = getColor(x);
+        ctx.fillStyle = colColor;
+        ctx.fillRect(x, 0, 1, canvasHeight);
+    }
+    
+    requestAnimationFrame(update);
+}
+
+// Initial call
+requestAnimationFrame(update);
+
+</script>
+</html>

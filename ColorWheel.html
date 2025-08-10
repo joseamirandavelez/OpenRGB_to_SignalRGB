@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Color Wheel</title>
+    <meta description="A rotating rainbow.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+    <meta property="speed" label="Speed" type="number" min="10" max="200" default="100">
+    <meta property="x_position" label="X Position (%)" type="number" min="0" max="100" default="50">
+    <meta property="y_position" label="Y Position (%)" type="number" min="0" max="100" default="50">
+    <meta property="direction" label="Direction" type="list" values="Clockwise,Counter-clockwise" default="Clockwise">
+</head>
+
+<body style="margin: 0; padding: 0;">
+    <canvas id="colorwheel-canvas" width="320" height="200"></canvas>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('colorwheel-canvas');
+const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
+
+// Effect state variables
+let progress = 0.0;
+
+// -------------------------------------------------------------------
+// EFFECT LOGIC
+// -------------------------------------------------------------------
+
+function getColor(x, y, w, h) {
+    // Determine the center point of the wheel based on the sliders
+    const centerX = w * (x_position / 100.0);
+    const centerY = h * (y_position / 100.0);
+
+    // Set rotation direction
+    const direction_mult = (direction === "Clockwise") ? 1.0 : -1.0;
+
+    // Calculate the angle of the pixel relative to the center point.
+    // atan2 gives an angle in radians, which we convert to degrees.
+    const angle = Math.atan2(y - centerY, x - centerX) * (180 / Math.PI);
+
+    // Calculate the hue by combining the pixel's angle with the rotating progress
+    const hue = (progress + direction_mult * angle) % 360;
+    
+    // Use HSL color space, which maps directly to the calculated hue
+    return `hsl(${hue}, 100%, 50%)`;
+}
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+let lastTime = 0;
+function update(currentTime) {
+    const deltaTime = (currentTime - lastTime) / 1000;
+    lastTime = currentTime;
+
+    if (isNaN(deltaTime)) {
+        requestAnimationFrame(update);
+        return;
+    }
+    
+    // Update the progress variable to animate the rotation
+    progress += (speed / 10) * deltaTime * 60;
+    if (progress >= 360) {
+        progress -= 360;
+    }
+
+    // Render each pixel on the canvas
+    const imageData = ctx.createImageData(canvasWidth, canvasHeight);
+    const data = imageData.data;
+
+    for (let y = 0; y < canvasHeight; y++) {
+        for (let x = 0; x < canvasWidth; x++) {
+            const color = getColor(x, y, canvasWidth, canvasHeight);
+            
+            // A simple way to parse the HSL color string to RGB for the canvas buffer
+            ctx.fillStyle = color;
+            const rgb = ctx.fillStyle.match(/\d+/g);
+
+            const index = (y * canvasWidth + x) * 4;
+            data[index] = rgb[0];
+            data[index + 1] = rgb[1];
+            data[index + 2] = rgb[2];
+            data[index + 3] = 255; // Alpha
+        }
+    }
+
+    // Draw the completed frame to the canvas at once
+    ctx.putImageData(imageData, 0, 0);
+
+    requestAnimationFrame(update);
+}
+
+// Initial call
+requestAnimationFrame(update);
+
+</script>
+</html>

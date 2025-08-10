@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gradient Wave</title>
+    <meta description="Similar to rainbow wave but with 2 colors.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+    <meta property="speed" label="Speed" type="number" min="1" max="30" default="10">
+    <meta property="random_colors" label="Random Colors" type="boolean" default="false">
+    <meta property="color1" label="Color 1" type="color" default="#ff0000">
+    <meta property="color2" label="Color 2" type="color" default="#0000ff">
+</head>
+
+<body style="margin: 0; padding: 0;">
+    <canvas id="gradientwave-canvas" width="320" height="200"></canvas>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('gradientwave-canvas');
+const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
+
+// Effect state variables
+let progress = 0.0;
+let color_start = [255, 0, 0];
+let color_end = [0, 0, 255];
+
+// -------------------------------------------------------------------
+// COLOR UTILITIES
+// -------------------------------------------------------------------
+
+function hexToRgb(hex) {
+    if (!hex) return [0, 0, 0];
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return [r, g, b];
+}
+
+function randomRgb() {
+    return [Math.random() * 255, Math.random() * 255, Math.random() * 255];
+}
+
+/** Linearly interpolates between two colors */
+function lerpColor(c1, c2, factor) {
+    const r = c1[0] * (1 - factor) + c2[0] * factor;
+    const g = c1[1] * (1 - factor) + c2[1] * factor;
+    const b = c1[2] * (1 - factor) + c2[2] * factor;
+    return [r, g, b];
+}
+
+// -------------------------------------------------------------------
+// EFFECT LOGIC
+// -------------------------------------------------------------------
+
+function getColor(x, w) {
+    // This logic creates a "ping-pong" or "bouncing" wave position
+    let gradient_pos = progress + x;
+    if (gradient_pos > w) {
+        gradient_pos = w - (gradient_pos - w);
+    }
+    if (gradient_pos < 0) {
+        gradient_pos *= -1;
+    }
+    
+    // Normalize the position to a 0.0 - 1.0 factor for interpolation
+    const factor = gradient_pos / w;
+    
+    const final_color = lerpColor(color_start, color_end, factor);
+    
+    return `rgb(${final_color[0]}, ${final_color[1]}, ${final_color[2]})`;
+}
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+let lastTime = 0;
+let lastColorSettings = ""; // To track when user changes colors
+let lastRandomToggle = random_colors;
+
+function update(currentTime) {
+    const deltaTime = (currentTime - lastTime) / 1000;
+    lastTime = currentTime;
+
+    if (isNaN(deltaTime)) {
+        requestAnimationFrame(update);
+        return;
+    }
+
+    // --- Update State ---
+    const currentColorSettings = color1 + color2;
+    if (random_colors) {
+        // If random is toggled on, generate new colors
+        if (lastRandomToggle !== random_colors) {
+            color_start = randomRgb();
+            color_end = randomRgb();
+            lastRandomToggle = true;
+        }
+    } else {
+        // If user changes a color, update it
+        if (currentColorSettings !== lastColorSettings || lastRandomToggle !== random_colors) {
+            color_start = hexToRgb(color1);
+            color_end = hexToRgb(color2);
+            lastColorSettings = currentColorSettings;
+            lastRandomToggle = false;
+        }
+    }
+    
+    // Animate the wave's progress
+    progress += (canvasWidth * 0.1) * (speed / 10) * deltaTime;
+    if (progress >= (canvasWidth * 2)) {
+        progress = 0;
+        // If random is enabled, get new colors for the next cycle
+        if (random_colors) {
+            color_start = randomRgb();
+            color_end = randomRgb();
+        }
+    }
+
+    // --- Render ---
+    // This is a horizontal effect, so we can calculate each column's color once
+    for (let x = 0; x < canvasWidth; x++) {
+        const colColor = getColor(x, canvasWidth);
+        ctx.fillStyle = colColor;
+        ctx.fillRect(x, 0, 1, canvasHeight);
+    }
+    
+    requestAnimationFrame(update);
+}
+
+// Initial call
+requestAnimationFrame(update);
+
+</script>
+</html>

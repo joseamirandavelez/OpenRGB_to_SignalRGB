@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mask</title>
+    <meta description="A simple mask for using in layers.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+    <meta property="x_pos" label="X Position" type="number" min="0.0" max="1.0" step="0.01" default="0.25">
+    <meta property="y_pos" label="Y Position" type="number" min="0.0" max="1.0" step="0.01" default="0.25">
+    <meta property="width" label="Width" type="number" min="0.0" max="1.0" step="0.01" default="0.5">
+    <meta property="height" label="Height" type="number" min="0.0" max="1.0" step="0.01" default="0.5">
+    <meta property="invert_colors" label="Invert Colors" type="boolean" default="false">
+    <meta property="color_inside" label="Inside Color" type="color" default="#ffffff">
+    <meta property="color_outside" label="Outside Color" type="color" default="#000000">
+
+</head>
+
+<body style="margin: 0; padding: 0;">
+    <canvas id="mask-canvas" width="320" height="200"></canvas>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('mask-canvas');
+const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
+
+// -------------------------------------------------------------------
+// EFFECT LOGIC
+// -------------------------------------------------------------------
+
+function getColor(x, y, w, h) {
+    // Normalize the pixel's coordinates to a 0.0 - 1.0 range
+    const normX = x / w;
+    const normY = y / h;
+
+    // Check if the normalized coordinate is inside the user-defined rectangle
+    const is_inside = (normX >= x_pos && normX < (x_pos + width) &&
+                       normY >= y_pos && normY < (y_pos + height));
+    
+    // Assign colors based on whether the pixel is inside or outside,
+    // and whether the "Invert" checkbox is ticked.
+    if (is_inside) {
+        return invert_colors ? color_outside : color_inside;
+    } else {
+        return invert_colors ? color_inside : color_outside;
+    }
+}
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+// Since this effect is static (not animated), we only need to draw it once,
+// or whenever a setting changes. We'll use a simple loop that checks for changes.
+
+let lastSettings = "";
+function update() {
+    const currentSettings = "" + x_pos + y_pos + width + height + invert_colors + color_inside + color_outside;
+    
+    // Only redraw the canvas if a setting has changed
+    if (currentSettings !== lastSettings) {
+        lastSettings = currentSettings;
+
+        for (let y = 0; y < canvasHeight; y++) {
+            for (let x = 0; x < canvasWidth; x++) {
+                ctx.fillStyle = getColor(x, y, canvasWidth, canvasHeight);
+                ctx.fillRect(x, y, 1, 1);
+            }
+        }
+    }
+    
+    requestAnimationFrame(update);
+}
+
+// Initial call
+requestAnimationFrame(update);
+
+</script>
+</html>

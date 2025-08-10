@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Double Rotating Rainbow</title>
+    <meta description="Two rainbows that rotate synchronously.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+    <meta property="speed" label="Rotation Speed" type="number" min="1" max="100" default="50">
+    <meta property="color_speed" label="Color Speed" type="number" min="1" max="100" default="20">
+    <meta property="frequency" label="Frequency" type="number" min="1" max="20" default="5">
+</head>
+
+<body style="margin: 0; padding: 0;">
+    <canvas id="doublerainbow-canvas" width="320" height="200"></canvas>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('doublerainbow-canvas');
+const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
+
+// Effect state variables
+let time = 1000.0;
+let cos_time = 0.0;
+let sin_time = 0.0;
+
+// -------------------------------------------------------------------
+// EFFECT LOGIC
+// -------------------------------------------------------------------
+
+function getColor(x, y, w, h) {
+    const centerX = w * 0.5;
+    const centerY = h * 0.5;
+
+    // The core of the original effect's logic, translated from C++
+    // It uses the pre-calculated sine and cosine of the animation time
+    // to rotate the color field.
+    const hue_calculation = (time * color_speed) + 360 * (frequency * (y - centerY) * cos_time + (w*0.22 - Math.abs(x - centerX)) * frequency * sin_time) / 128.0;
+    
+    const hue = hue_calculation % 360;
+    
+    // Use HSL color space for direct mapping of the calculated hue
+    return `hsl(${hue}, 100%, 50%)`;
+}
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+let lastTime = 0;
+function update(currentTime) {
+    const deltaTime = (currentTime - lastTime) / 1000;
+    lastTime = currentTime;
+
+    if (isNaN(deltaTime)) {
+        requestAnimationFrame(update);
+        return;
+    }
+
+    // --- Update State ---
+    // Increment time based on speed and pre-calculate sine/cosine for this frame.
+    // This is more efficient than calculating them for every pixel.
+    time += 0.1 * speed * deltaTime;
+    cos_time = Math.cos(time);
+    sin_time = Math.sin(time);
+    
+    // --- Render ---
+    for (let y = 0; y < canvasHeight; y++) {
+        for (let x = 0; x < canvasWidth; x++) {
+            ctx.fillStyle = getColor(x, y, canvasWidth, canvasHeight);
+            ctx.fillRect(x, y, 1, 1);
+        }
+    }
+    
+    requestAnimationFrame(update);
+}
+
+// Initial call
+requestAnimationFrame(update);
+
+</script>
+</html>

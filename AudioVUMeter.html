@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Audio VU Meter</title>
+    <meta description="Fill your devices based on audio load, like a classic VU Meter.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+    <meta property="speed" label="Decay Speed" type="number" min="1" max="20" default="10">
+    <meta property="hue_offset" label="Hue Offset" type="number" min="0" max="360" default="180">
+    <meta property="hue_spread" label="Hue Spread" type="number" min="0" max="100" default="50">
+    <meta property="saturation" label="Saturation" type="number" min="0" max="255" default="255">
+    <meta property="invert_hue" label="Invert Hue Direction" type="boolean" default="false">
+</head>
+
+<body style="margin: 0; padding: 0;">
+    <canvas id="audiovumeter-canvas" width="320" height="200"></canvas>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('audiovumeter-canvas');
+const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
+
+// Effect state variables
+let last_height = 0.0;
+
+// -------------------------------------------------------------------
+// COLOR UTILITIES
+// -------------------------------------------------------------------
+
+function hsvToRgb(h, s, v) {
+    let r, g, b;
+    h /= 360; s /= 255; v /= 255;
+    const i = Math.floor(h * 6);
+    const f = h * 6 - i;
+    const p = v * (1 - s);
+    const q = v * (1 - f * s);
+    const t = v * (1 - (1 - f) * s);
+    switch (i % 6) {
+        case 0: r = v, g = t, b = p; break; case 1: r = q, g = v, b = p; break;
+        case 2: r = p, g = v, b = t; break; case 3: r = p, g = q, b = v; break;
+        case 4: r = t, g = p, b = v; break; case 5: r = v, g = p, b = q; break;
+    }
+    return [r * 255, g * 255, b * 255];
+}
+
+// -------------------------------------------------------------------
+// EFFECT LOGIC
+// -------------------------------------------------------------------
+
+function getColor(y, h, current_amplitude, peak_amplitude) {
+    const meter_height_current = current_amplitude * h;
+    const meter_height_peak = peak_amplitude * h;
+
+    // The y-coordinate is inverted because canvas coordinates start from the top-left
+    const inverted_y = h - y;
+
+    if (inverted_y <= meter_height_current) {
+        // This pixel is part of the solid bar
+        let hue = (hue_offset + (inverted_y / h) * 360 * (hue_spread / 100)) % 360;
+        if (invert_hue) {
+            hue = 360 - hue;
+        }
+        const rgb = hsvToRgb(hue, saturation, 255);
+        return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+
+    } else if (Math.abs(inverted_y - meter_height_peak) <= 1) {
+        // This pixel is part of the decaying peak line
+        let hue = (hue_offset + (inverted_y / h) * 360 * (hue_spread / 100)) % 360;
+        if (invert_hue) {
+            hue = 360 - hue;
+        }
+        // Calculate brightness based on how close it is to the peak line
+        const brightness = 255 * (1 - Math.abs(meter_height_peak - inverted_y));
+        const rgb = hsvToRgb(hue, saturation, brightness);
+        return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+    }
+
+    // This pixel is off
+    return 'rgb(0,0,0)';
+}
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+let lastTime = 0;
+function update(currentTime) {
+    const deltaTime = (currentTime - lastTime) / 1000;
+    lastTime = currentTime;
+
+    if (isNaN(deltaTime) || !engine || !engine.audio || !engine.audio.freq) {
+        requestAnimationFrame(update);
+        return;
+    }
+
+    const audioData = new Int8Array(engine.audio.freq);
+    
+    // 1. Calculate the total amplitude from all frequency bins
+    let total_amp = 0;
+    for (let i = 0; i < audioData.length; i++) {
+        total_amp += Math.abs(audioData[i]) / 128.0;
+    }
+    // Normalize the amplitude to a 0.0 - 1.0 range
+    let current_amp = Math.min(1.0, total_amp / audioData.length * 4); // Multiplier for sensitivity
+
+    // 2. Handle the peak decay (the line that falls down)
+    if (last_height > current_amp) {
+        // Decay speed is controlled by the "speed" slider
+        last_height -= 0.1 * speed * deltaTime;
+        last_height = Math.max(0.0, last_height);
+    } else {
+        last_height = current_amp;
+    }
+
+    // 3. Render to canvas
+    for (let y = 0; y < canvasHeight; y++) {
+        // Since this is a vertical effect, the color is the same for the whole row
+        const rowColor = getColor(y, canvasHeight, current_amp, last_height);
+        ctx.fillStyle = rowColor;
+        ctx.fillRect(0, y, canvasWidth, 1);
+    }
+    
+    requestAnimationFrame(update);
+}
+
+// Initial call
+requestAnimationFrame(update);
+
+</script>
+</html>

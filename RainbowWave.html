@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Rainbow Wave</title>
+    <meta description="A sliding Rainbow.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+    <meta property="speed" label="Speed" type="number" min="1" max="100" default="40">
+    <meta property="frequency" label="Frequency" type="number" min="1" max="50" default="10">
+</head>
+
+<body style="margin: 0; padding: 0;">
+    <canvas id="rainbowwave-canvas" width="320" height="200"></canvas>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('rainbowwave-canvas');
+const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
+
+// Effect state variables
+let progress = 0.0;
+
+// -------------------------------------------------------------------
+// EFFECT LOGIC
+// -------------------------------------------------------------------
+
+function getColor(x) {
+    // Calculate the hue for this pixel based on its horizontal position,
+    // the scrolling progress, and the user-defined frequency.
+    const hue = (progress + x) * frequency;
+    
+    // Use HSL color which maps directly to the calculated hue, with full saturation and lightness.
+    return `hsl(${hue}, 100%, 50%)`;
+}
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+let lastTime = 0;
+function update(currentTime) {
+    const deltaTime = (currentTime - lastTime) / 1000;
+    lastTime = currentTime;
+
+    if (isNaN(deltaTime)) {
+        requestAnimationFrame(update);
+        return;
+    }
+
+    // --- Update State ---
+    
+    // Animate the scrolling progress
+    progress += speed * deltaTime;
+    if (progress >= 360) {
+        progress -= 360; // Wrap around to keep the number manageable
+    }
+    
+    // --- Render ---
+    // This is a horizontal effect, so we calculate each column's color once
+    // and fill the entire column with it for efficiency.
+    for (let x = 0; x < canvasWidth; x++) {
+        const colColor = getColor(x);
+        ctx.fillStyle = colColor;
+        ctx.fillRect(x, 0, 1, canvasHeight);
+    }
+    
+    requestAnimationFrame(update);
+}
+
+// Initial call
+requestAnimationFrame(update);
+
+</script>
+</html>

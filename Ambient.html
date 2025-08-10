@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Ambient</title>
+    <meta description="Takes a portion of the screen and reflects its colors onto your devices.">
+    <meta publisher="Jose Miranda (Conversion and improvements)">
+
+    <meta property="mode" label="Mode" type="list" values="Scaled Average,Screen Copy" default="Screen Copy">
+    <meta property="smoothness" label="Smoothness" type="number" min="0" max="99" default="80">
+    <meta property="crop_stream" label="Crop Stream" type="boolean" default="false">
+    
+    <meta property="crop_left" label="Left" type="number" min="0" max="9999" default="0">
+    <meta property="crop_top" label="Top" type="number" min="0" max="9999" default="0">
+    <meta property="crop_width" label="Width" type="number" min="0" max="9999" default="1920">
+    <meta property="crop_height" label="Height" type="number" min="0" max="9999" default="1080">
+</head>
+
+<body style="margin: 0; padding: 0;">
+    <canvas id="ambient-canvas" width="320" height="200"></canvas>
+</body>
+
+<script>
+// -------------------------------------------------------------------
+// SETUP
+// -------------------------------------------------------------------
+
+const canvas = document.getElementById('ambient-canvas');
+const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
+
+// A hidden canvas is used for scaling the screen capture
+const tempCanvas = document.createElement('canvas');
+const tempCtx = tempCanvas.getContext('2d');
+
+// Variables to store the previous frame's data for smoothing
+let prevAvgColor = { r: 0, g: 0, b: 0 };
+let prevImageData = ctx.createImageData(canvasWidth, canvasHeight);
+
+// -------------------------------------------------------------------
+// HELPER FUNCTIONS
+// -------------------------------------------------------------------
+
+/** Linearly interpolates between two values */
+function lerp(a, b, factor) {
+    return a * (1 - factor) + b * factor;
+}
+
+// -------------------------------------------------------------------
+// MAIN ANIMATION LOOP
+// -------------------------------------------------------------------
+
+function update() {
+    // FIXED: Added a more robust check to ensure the engine's framegrabber is ready.
+    // This prevents the 'cannot read properties of undefined' error on startup.
+    if (!engine || !engine.framegrabber || !engine.framegrabber.pixels || engine.framegrabber.pixels.length === 0) {
+        requestAnimationFrame(update);
+        return; // Wait for the framegrabber to be ready
+    }
+
+    // Get the latest screen capture data from the SignalRGB engine
+    const captureWidth = engine.framegrabber.width;
+    const captureHeight = engine.framegrabber.height;
+    const capturePixels = engine.framegrabber.pixels;
+    
+    let sourceWidth = captureWidth;
+    let sourceHeight = captureHeight;
+    let sourcePixels = capturePixels;
+
+    // --- Cropping Logic ---
+    if (crop_stream) {
+        const x_start = Math.max(0, crop_left);
+        const y_start = Math.max(0, crop_top);
+        const x_end = Math.min(captureWidth, x_start + crop_width);
+        const y_end = Math.min(captureHeight, y_start + crop_height);
+
+        const newWidth = x_end - x_start;
+        const newHeight = y_end - y_start;
+
+        if (newWidth > 0 && newHeight > 0) {
+            const croppedPixels = new Uint8ClampedArray(newWidth * newHeight * 4);
+            let i = 0;
+            for (let y = y_start; y < y_end; y++) {
+                for (let x = x_start; x < x_end; x++) {
+                    const sourceIndex = (y * captureWidth + x) * 4;
+                    croppedPixels[i] = capturePixels[sourceIndex];
+                    croppedPixels[i + 1] = capturePixels[sourceIndex + 1];
+                    croppedPixels[i + 2] = capturePixels[sourceIndex + 2];
+                    croppedPixels[i + 3] = 255;
+                    i += 4;
+                }
+            }
+            sourcePixels = croppedPixels;
+            sourceWidth = newWidth;
+            sourceHeight = newHeight;
+        }
+    }
+
+    const smoothFactor = 0.01 * (100 - smoothness);
+
+    // --- Mode Logic ---
+    switch (mode) {
+        case "Scaled Average": {
+            let total_r = 0, total_g = 0, total_b = 0;
+            const pixelCount = sourcePixels.length / 4;
+
+            for (let i = 0; i < sourcePixels.length; i += 4) {
+                total_r += sourcePixels[i];
+                total_g += sourcePixels[i + 1];
+                total_b += sourcePixels[i + 2];
+            }
+
+            const avg_r = total_r / pixelCount;
+            const avg_g = total_g / pixelCount;
+            const avg_b = total_b / pixelCount;
+
+            const final_r = lerp(prevAvgColor.r, avg_r, smoothFactor);
+            const final_g = lerp(prevAvgColor.g, avg_g, smoothFactor);
+            const final_b = lerp(prevAvgColor.b, avg_b, smoothFactor);
+            
+            ctx.fillStyle = `rgb(${final_r}, ${final_g}, ${final_b})`;
+            ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+            
+            prevAvgColor = { r: final_r, g: final_g, b: final_b };
+            break;
+        }
+        
+        case "Screen Copy": {
+            if (sourceWidth > 0 && sourceHeight > 0) {
+                tempCanvas.width = sourceWidth;
+                tempCanvas.height = sourceHeight;
+                const newImageData = new ImageData(sourcePixels, sourceWidth, sourceHeight);
+                tempCtx.putImageData(newImageData, 0, 0);
+
+                ctx.drawImage(tempCanvas, 0, 0, canvasWidth, canvasHeight);
+                
+                const currentImageData = ctx.getImageData(0, 0, canvasWidth, canvasHeight);
+                const currentPixels = currentImageData.data;
+
+                for (let i = 0; i < currentPixels.length; i += 4) {
+                    currentPixels[i] = lerp(prevImageData.data[i], currentPixels[i], smoothFactor);
+                    currentPixels[i + 1] = lerp(prevImageData.data[i + 1], currentPixels[i + 1], smoothFactor);
+                    currentPixels[i + 2] = lerp(prevImageData.data[i + 2], currentPixels[i + 2], smoothFactor);
+                }
+                
+                ctx.putImageData(currentImageData, 0, 0);
+                prevImageData = currentImageData;
+            }
+            break;
+        }
+    }
+
+    requestAnimationFrame(update);
+}
+
+// Initial call to start the animation
+requestAnimationFrame(update);
+
+</script>
+</html>
