@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+<!DOCTYPE html><!--Original code: https://gitlab.com/OpenRGBDevelopers/OpenRGBEffectsPlugin/-/tree/master?ref_type=heads-->
 <html>
 <head>
-    <title>Starry Night</title>
+    <title>ORGB: Starry Night</title>
     <meta description="Selects a random LED and fades it in and out.">
-    <meta publisher="Jose Miranda (Conversion and improvements)">
+    <meta publisher="Jose Miranda (Port and improvements)">
 
     <meta property="star_density" label="Star Density (%)" type="number" min="10" max="90" default="50">
     <meta property="fade_in_speed" label="Fade In Speed" type="number" min="1" max="100" default="50">
@@ -32,16 +32,10 @@ const canvas = document.getElementById('starrynight-canvas');
 const ctx = canvas.getContext('2d');
 const canvasWidth = canvas.width;
 const canvasHeight = canvas.height;
+const imageData = ctx.createImageData(canvasWidth, canvasHeight);
+const pixels = imageData.data;
 
 let stars = []; // This will store the state for each star
-
-// Constants for timing ranges (in milliseconds)
-const MIN_DELAY = 0, MAX_DELAY = 1000;
-const MIN_ON_TIME = 1000, MAX_ON_TIME = 3000;
-const MIN_FADE_TIME = 1000, MAX_FADE_TIME = 3000;
-const ON_RANGE_SELECTOR = 50.0;
-const FADE_RANGE_SELECTOR = 50.0;
-
 
 // -------------------------------------------------------------------
 // COLOR UTILITIES
@@ -68,6 +62,16 @@ function applyBrightness(rgb, brightness) {
     return [rgb[0] * brightness, rgb[1] * brightness, rgb[2] * brightness];
 }
 
+function getStarColor() {
+    const userColors = [color1, color2, color3].filter(c => c && c !== "#000000");
+    if (random_colors) {
+        return randomRgb();
+    } else if (userColors.length > 0) {
+        return hexToRgb(userColors[Math.floor(Math.random() * userColors.length)]);
+    }
+    return [255, 255, 255]; // Failsafe
+}
+
 // -------------------------------------------------------------------
 // STAR LOGIC
 // -------------------------------------------------------------------
@@ -77,25 +81,16 @@ function initializeStars() {
     const totalPixels = canvasWidth * canvasHeight;
     const starCount = Math.floor(totalPixels * (star_density / 100.0));
     
-    const userColors = [color1, color2, color3].filter(c => c && c !== "#000000");
-
-    for(let i=0; i < starCount; i++) {
-        const star = {
-            state: "off", // off, delayed, fadeIn, on, fadeOut
+    // Create a new set of stars
+    for(let i = 0; i < starCount; i++) {
+        stars.push({
+            state: "off", // off, fadeIn, on, fadeOut
             pixelIndex: -1,
-            color: [255,255,255],
+            color: getStarColor(),
             stateStartTime: 0,
-            delayDuration: 0,
             onDuration: 0,
             fadeDuration: 0
-        };
-        // Pre-assign a color
-        if (random_colors) {
-            star.color = randomRgb();
-        } else if (userColors.length > 0) {
-            star.color = hexToRgb(userColors[Math.floor(Math.random() * userColors.length)]);
-        }
-        stars.push(star);
+        });
     }
 }
 
@@ -105,6 +100,17 @@ function initializeStars() {
 
 let lastTime = 0;
 let lastDensity = -1;
+let lastRandomColors = false;
+let lastColor1 = '';
+let lastColor2 = '';
+let lastColor3 = '';
+let lastBackgroundColor = '';
+let lastBackgroundBrightness = -1;
+let lastFadeInSpeed = -1;
+let lastFadeOutSpeed = -1;
+let lastStarOnTime = -1;
+
+
 function update(currentTime) {
     const deltaTime = (currentTime - lastTime); // Milliseconds
     lastTime = currentTime;
@@ -114,73 +120,73 @@ function update(currentTime) {
         return;
     }
     
-    // If the density slider changes, re-initialize the stars array
-    if(star_density !== lastDensity) {
+    // If a relevant slider changes, re-initialize the stars array
+    if(star_density !== lastDensity || random_colors !== lastRandomColors ||
+       color1 !== lastColor1 || color2 !== lastColor2 || color3 !== lastColor3) {
         initializeStars();
         lastDensity = star_density;
+        lastRandomColors = random_colors;
+        lastColor1 = color1;
+        lastColor2 = color2;
+        lastColor3 = color3;
     }
 
-    const userColors = [color1, color2, color3].filter(c => c && c !== "#000000");
     const backgroundRgb = applyBrightness(hexToRgb(background_color), background_brightness/100.0);
     
     // --- Update Star States ---
-    const activePixelIndices = new Set(stars.map(s => s.pixelIndex));
+    const activePixelIndices = new Set(stars.filter(s => s.pixelIndex !== -1).map(s => s.pixelIndex));
 
     for(const star of stars) {
         if(star.state === "off") {
             // Find a random, unoccupied pixel for this star
             let newPixelIndex;
+            let attempts = 0;
             do {
                 newPixelIndex = Math.floor(Math.random() * canvasWidth * canvasHeight);
+                attempts++;
+                if (attempts > 100) break; // Prevent infinite loop on a full canvas
             } while (activePixelIndices.has(newPixelIndex));
 
-            star.pixelIndex = newPixelIndex;
-            activePixelIndices.add(newPixelIndex);
-            
-            star.state = "delayed";
-            star.stateStartTime = currentTime;
-            star.delayDuration = MIN_DELAY + Math.random() * (MAX_DELAY - MIN_DELAY);
-        }
-        else if (star.state === "delayed") {
-            if (currentTime - star.stateStartTime >= star.delayDuration) {
+            if (attempts <= 100) {
+                star.pixelIndex = newPixelIndex;
+                activePixelIndices.add(newPixelIndex);
+                
                 star.state = "fadeIn";
                 star.stateStartTime = currentTime;
-                star.fadeDuration = (MIN_FADE_TIME + Math.random() * (MAX_FADE_TIME - MIN_FADE_TIME)) * (FADE_RANGE_SELECTOR / fade_in_speed);
+                star.fadeDuration = 200 + Math.random() * 2000 / (fade_in_speed / 100);
             }
         }
         else if (star.state === "fadeIn") {
             if (currentTime - star.stateStartTime >= star.fadeDuration) {
                 star.state = "on";
                 star.stateStartTime = currentTime;
-                star.onDuration = (MIN_ON_TIME + Math.random() * (MAX_ON_TIME - MIN_ON_TIME)) * (ON_RANGE_SELECTOR / star_on_time);
+                star.onDuration = 100 + Math.random() * 3000 / (star_on_time / 100);
             }
         }
         else if (star.state === "on") {
             if(currentTime - star.stateStartTime >= star.onDuration) {
                 star.state = "fadeOut";
                 star.stateStartTime = currentTime;
-                star.fadeDuration = (MIN_FADE_TIME + Math.random() * (MAX_FADE_TIME - MIN_FADE_TIME)) * (FADE_RANGE_SELECTOR / fade_out_speed);
+                star.fadeDuration = 200 + Math.random() * 2000 / (fade_out_speed / 100);
             }
         }
         else if (star.state === "fadeOut") {
             if(currentTime - star.stateStartTime >= star.fadeDuration) {
                 star.state = "off";
                 activePixelIndices.delete(star.pixelIndex); // Free up the pixel
-                 if (random_colors) {
-                    star.color = randomRgb();
-                } else if (userColors.length > 0) {
-                    star.color = hexToRgb(userColors[Math.floor(Math.random() * userColors.length)]);
-                }
+                star.pixelIndex = -1; // Reset pixel index
+                star.color = getStarColor(); // Get a new color for the next cycle
             }
         }
     }
 
     // --- Render ---
-    ctx.fillStyle = `rgb(${backgroundRgb[0]}, ${backgroundRgb[1]}, ${backgroundRgb[2]})`;
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-
-    const imageData = ctx.getImageData(0,0,canvasWidth, canvasHeight);
-    const data = imageData.data;
+    for(let i = 0; i < pixels.length; i += 4) {
+        pixels[i] = Math.round(backgroundRgb[0]);
+        pixels[i+1] = Math.round(backgroundRgb[1]);
+        pixels[i+2] = Math.round(backgroundRgb[2]);
+        pixels[i+3] = 255;
+    }
 
     for(const star of stars) {
         if(star.pixelIndex === -1) continue;
@@ -192,14 +198,14 @@ function update(currentTime) {
         } else if (star.state === "on") {
             finalColor = star.color;
         } else if (star.state === "fadeOut") {
-            const factor = (currentTime - star.stateStartTime) / star.fadeDuration;
+            const factor = 1.0 - (currentTime - star.stateStartTime) / star.fadeDuration;
             finalColor = lerpColor(star.color, backgroundRgb, factor);
         }
         
         const index = star.pixelIndex * 4;
-        data[index] = finalColor[0];
-        data[index+1] = finalColor[1];
-        data[index+2] = finalColor[2];
+        pixels[index] = Math.round(finalColor[0]);
+        pixels[index+1] = Math.round(finalColor[1]);
+        pixels[index+2] = Math.round(finalColor[2]);
     }
     
     ctx.putImageData(imageData, 0, 0);
@@ -208,7 +214,7 @@ function update(currentTime) {
 }
 
 // Initial call
+initializeStars();
 requestAnimationFrame(update);
-
 </script>
 </html>

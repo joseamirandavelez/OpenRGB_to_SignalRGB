@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+<!DOCTYPE html><!--Original code: https://gitlab.com/OpenRGBDevelopers/OpenRGBEffectsPlugin/-/tree/master?ref_type=heads-->
 <html>
 <head>
-    <title>Stack</title>
+    <title>ORGB: Stack</title>
     <meta description="Fills and stacks your devices with a solid color.">
-    <meta publisher="Jose Miranda (Conversion and improvements)">
+    <meta publisher="Jose Miranda (Port and improvements)">
 
-    <meta property="speed" label="Speed" type="number" min="1" max="20" default="10">
+    <meta property="speed" label="Speed" type="number" min="1" max="200" default="50">
     <meta property="direction" label="Matrix Direction" type="list" values="Horizontal,Vertical" default="Horizontal">
     <meta property="random_colors" label="Random Colors" type="boolean" default="false">
     <meta property="user_color" label="Color" type="color" default="#ffffff">
@@ -24,12 +24,16 @@ const canvas = document.getElementById('stack-canvas');
 const ctx = canvas.getContext('2d');
 const canvasWidth = canvas.width;
 const canvasHeight = canvas.height;
+const imageData = ctx.createImageData(canvasWidth, canvasHeight);
+const pixels = imageData.data;
 
 // Effect state variables
 let progress = 0.0;
 let stop_point = 0;
 let activeColor = [255, 255, 255];
-let lastDirection = direction; // To detect changes
+let lastDirection = direction;
+let lastUserColor = user_color;
+let lastRandomColors = random_colors;
 
 // -------------------------------------------------------------------
 // COLOR UTILITIES
@@ -59,26 +63,11 @@ function resetState(w, h) {
     const size = direction === "Horizontal" ? w : h;
     stop_point = size > 0 ? size - 1 : 0;
     progress = 0.0;
-    activeColor = random_colors ? randomRgb() : hexToRgb(user_color);
-}
-
-function getColor(pos, size) {
-    // Pixels that have been "stacked" are solid
-    if (pos > stop_point) {
-        return `rgb(${activeColor[0]}, ${activeColor[1]}, ${activeColor[2]})`;
+    if (random_colors) {
+        activeColor = randomRgb();
+    } else {
+        activeColor = hexToRgb(user_color);
     }
-    
-    // Calculate the distance from the current pixel to the moving point
-    const distance = Math.abs(progress - pos);
-
-    // If the pixel is more than 1 unit away, it's off
-    if (distance > 1) {
-        return 'rgb(0,0,0)';
-    }
-    
-    // Otherwise, create a soft glow for the moving point
-    const fadedColor = applyBrightness(activeColor, 1 - distance);
-    return `rgb(${fadedColor[0]}, ${fadedColor[1]}, ${fadedColor[2]})`;
 }
 
 // -------------------------------------------------------------------
@@ -86,6 +75,7 @@ function getColor(pos, size) {
 // -------------------------------------------------------------------
 
 let lastTime = 0;
+
 function update(currentTime) {
     const deltaTime = (currentTime - lastTime) / 1000;
     lastTime = currentTime;
@@ -97,45 +87,90 @@ function update(currentTime) {
 
     // --- Update State ---
     
-    // Reset if the direction changes
-    if(direction !== lastDirection) {
+    // Check if direction or color properties have changed
+    if (direction !== lastDirection) {
         resetState(canvasWidth, canvasHeight);
         lastDirection = direction;
     }
     
-    const size = direction === "Horizontal" ? canvasWidth : canvasHeight;
-    const delta_progress = 0.1 * speed * deltaTime * 60;
-    
-    progress += delta_progress * size;
+    if (random_colors !== lastRandomColors || user_color !== lastUserColor) {
+        if (random_colors) {
+            activeColor = randomRgb();
+        } else {
+            activeColor = hexToRgb(user_color);
+        }
+        lastRandomColors = random_colors;
+        lastUserColor = user_color;
+    }
 
-    // When the moving point reaches the current stop point
-    if (progress >= stop_point) {
-        stop_point--; // Move the stop point inward
-        progress = 0.0; // Reset the moving point
+    const size = direction === "Horizontal" ? canvasWidth : canvasHeight;
+    progress += speed * deltaTime;
+
+    if (progress >= 1.0) {
+        stop_point -= Math.floor(progress);
+        progress %= 1.0;
         
-        // When the stack is complete, reset the whole effect
         if (stop_point < 0) {
             resetState(canvasWidth, canvasHeight);
         }
     }
 
-    // --- Render ---
-    ctx.fillStyle = 'black';
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    // --- Render with ImageData ---
+    const isHorizontal = direction === "Horizontal";
+
+    for (let i = 0; i < pixels.length; i += 4) {
+        pixels[i] = 0;
+        pixels[i + 1] = 0;
+        pixels[i + 2] = 0;
+        pixels[i + 3] = 255;
+    }
     
-    if (direction === "Horizontal") {
-        for (let x = 0; x < canvasWidth; x++) {
-            const colColor = getColor(x, size);
-            ctx.fillStyle = colColor;
-            ctx.fillRect(x, 0, 1, canvasHeight);
+    const movingPos = stop_point - progress;
+    const fadeFactor = movingPos - Math.floor(movingPos);
+    
+    for (let i = 0; i < size; i++) {
+        let r, g, b;
+        
+        if (i > stop_point) {
+            r = activeColor[0];
+            g = activeColor[1];
+            b = activeColor[2];
+        } else if (i === Math.floor(movingPos)) {
+            const brightness = 1 - fadeFactor;
+            const fadedColor = applyBrightness(activeColor, brightness);
+            r = fadedColor[0];
+            g = fadedColor[1];
+            b = fadedColor[2];
+        } else if (i === Math.floor(movingPos) + 1) {
+            const brightness = fadeFactor;
+            const fadedColor = applyBrightness(activeColor, brightness);
+            r = fadedColor[0];
+            g = fadedColor[1];
+            b = fadedColor[2];
+        } else {
+            continue;
         }
-    } else { // Vertical
-        for (let y = 0; y < canvasHeight; y++) {
-            const rowColor = getColor(y, size);
-            ctx.fillStyle = rowColor;
-            ctx.fillRect(0, y, canvasWidth, 1);
+
+        if (isHorizontal) {
+            for (let y = 0; y < canvasHeight; y++) {
+                const pixelIndex = (y * canvasWidth + i) * 4;
+                pixels[pixelIndex] = r;
+                pixels[pixelIndex + 1] = g;
+                pixels[pixelIndex + 2] = b;
+                pixels[pixelIndex + 3] = 255;
+            }
+        } else {
+            for (let x = 0; x < canvasWidth; x++) {
+                const pixelIndex = (i * canvasWidth + x) * 4;
+                pixels[pixelIndex] = r;
+                pixels[pixelIndex + 1] = g;
+                pixels[pixelIndex + 2] = b;
+                pixels[pixelIndex + 3] = 255;
+            }
         }
     }
+
+    ctx.putImageData(imageData, 0, 0);
     
     requestAnimationFrame(update);
 }
@@ -143,6 +178,5 @@ function update(currentTime) {
 // Initial call
 resetState(canvasWidth, canvasHeight);
 requestAnimationFrame(update);
-
 </script>
 </html>

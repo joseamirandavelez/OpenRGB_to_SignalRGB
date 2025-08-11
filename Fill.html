@@ -1,13 +1,13 @@
-<!DOCTYPE html>
+<!DOCTYPE html><!--Original code: https://gitlab.com/OpenRGBDevelopers/OpenRGBEffectsPlugin/-/tree/master?ref_type=heads-->
 <html>
 <head>
-    <title>Fill</title>
+    <title>ORGB: Fill</title>
     <meta description="Progressively fills your devices with a defined color.">
-    <meta publisher="Jose Miranda (Conversion and improvements)">
+    <meta publisher="Jose Miranda (Port and improvements)">
 
-    <meta property="speed" label="Speed" type="number" min="10" max="100" default="50">
+    <meta property="speed" label="Speed" type="number" min="10" max="20" default="5">
     <meta property="random_colors" label="Random Colors" type="boolean" default="true">
-    <meta property="user_color" label="Color" type="color" default="#ffffff">
+    <meta property="user_color" label="Color" type="color" min="0" max="360" default="#ffffff">
 </head>
 
 <body style="margin: 0; padding: 0;">
@@ -23,10 +23,14 @@ const canvas = document.getElementById('fill-canvas');
 const ctx = canvas.getContext('2d');
 const canvasWidth = canvas.width;
 const canvasHeight = canvas.height;
+const imageData = ctx.createImageData(canvasWidth, canvasHeight);
+const pixels = imageData.data;
 
 // Effect state variables
 let time = 0.0;
 let activeColor = [255, 255, 255]; // The color used for the current fill cycle
+let lastRandomColors = random_colors;
+let lastUserColor = user_color;
 
 // -------------------------------------------------------------------
 // HELPER FUNCTIONS
@@ -49,35 +53,6 @@ function applyBrightness(rgb, brightness) {
 }
 
 // -------------------------------------------------------------------
-// EFFECT LOGIC
-// -------------------------------------------------------------------
-
-function getColor(x, w, progress, isFilling) {
-    if (isFilling) {
-        // This is the "fill" stage of the animation
-        const position = progress * w;
-        const distance = position - x;
-
-        if (distance > 1) {
-            // This pixel is fully behind the fill line, so it's solid
-            return `rgb(${activeColor[0]}, ${activeColor[1]}, ${activeColor[2]})`;
-        } else if (distance > 0) {
-            // This pixel is on the soft leading edge of the fill
-            const fadedColor = applyBrightness(activeColor, distance);
-            return `rgb(${fadedColor[0]}, ${fadedColor[1]}, ${fadedColor[2]})`;
-        } else {
-            // This pixel is ahead of the fill line, so it's off
-            return 'rgb(0,0,0)';
-        }
-    } else {
-        // This is the "fade out" stage of the animation
-        const brightness = 1 - progress;
-        const fadedColor = applyBrightness(activeColor, brightness);
-        return `rgb(${fadedColor[0]}, ${fadedColor[1]}, ${fadedColor[2]})`;
-    }
-}
-
-// -------------------------------------------------------------------
 // MAIN ANIMATION LOOP
 // -------------------------------------------------------------------
 
@@ -92,13 +67,12 @@ function update(currentTime) {
     }
 
     // --- Update State ---
-    const old_progress = time % 1.0;
-    time += 0.01 * speed * deltaTime * 20; // Multiplier to match original speed feel
+    const old_time = time;
+    time = (time + 0.01 * speed * deltaTime * 20) % 2;
     const progress = time % 1.0;
 
     // A cycle completes when progress wraps around from ~1.0 back to ~0.0
-    if (old_progress > progress) {
-        // Pick a new color for the next cycle
+    if (time < old_time) {
         if (random_colors) {
             activeColor = randomRgb();
         } else {
@@ -106,24 +80,53 @@ function update(currentTime) {
         }
     }
 
-    // The animation is split into two stages based on the integer part of 'time'
+    if (random_colors !== lastRandomColors || user_color !== lastUserColor) {
+        if (random_colors) {
+            activeColor = randomRgb();
+        } else {
+            activeColor = hexToRgb(user_color);
+        }
+        lastRandomColors = random_colors;
+        lastUserColor = user_color;
+    }
+
     const isFilling = Math.floor(time) % 2 === 0;
 
     // --- Render ---
-    // This effect is horizontal, so we can calculate each column's color once
-    // and fill the entire column.
     for (let x = 0; x < canvasWidth; x++) {
-        const colColor = getColor(x, canvasWidth, progress, isFilling);
-        ctx.fillStyle = colColor;
-        ctx.fillRect(x, 0, 1, canvasHeight);
+        const position = progress * canvasWidth;
+        const distance = position - x;
+
+        let finalColor;
+        
+        if (isFilling) {
+            if (distance > 1) {
+                finalColor = activeColor;
+            } else if (distance > 0) {
+                finalColor = applyBrightness(activeColor, distance);
+            } else {
+                finalColor = [0, 0, 0];
+            }
+        } else {
+            const brightness = 1 - progress;
+            finalColor = applyBrightness(activeColor, brightness);
+        }
+
+        for (let y = 0; y < canvasHeight; y++) {
+            const index = (y * canvasWidth + x) * 4;
+            pixels[index] = Math.round(finalColor[0]);
+            pixels[index + 1] = Math.round(finalColor[1]);
+            pixels[index + 2] = Math.round(finalColor[2]);
+            pixels[index + 3] = 255;
+        }
     }
     
+    ctx.putImageData(imageData, 0, 0);
+
     requestAnimationFrame(update);
 }
 
-// Initial color selection and first animation call
 activeColor = random_colors ? randomRgb() : hexToRgb(user_color);
 requestAnimationFrame(update);
-
 </script>
 </html>

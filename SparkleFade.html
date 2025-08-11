@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+<!DOCTYPE html><!--Original code: https://gitlab.com/OpenRGBDevelopers/OpenRGBEffectsPlugin/-/tree/master?ref_type=heads-->
 <html>
 <head>
-    <title>Sparkle Fade</title>
+    <title>ORGB: Sparkle Fade</title>
     <meta description="Fading in and fade out with sparkles.">
-    <meta publisher="Jose Miranda (Conversion and improvements)">
+    <meta publisher="Jose Miranda (Port and improvements)">
 
     <meta property="off_time" label="Off Time (ms)" type="number" min="0" max="100000" step="100" default="500">
     <meta property="fade_in_time" label="Fade In Time (ms)" type="number" min="1" max="100000" step="100" default="3000">
@@ -25,12 +25,16 @@ const canvas = document.getElementById('sparklefade-canvas');
 const ctx = canvas.getContext('2d');
 const canvasWidth = canvas.width;
 const canvasHeight = canvas.height;
+const imageData = ctx.createImageData(canvasWidth, canvasHeight);
+const pixels = imageData.data;
 
 // Effect state variables
 let currentState = "off"; // off, fadeIn, on, fadeOut
 let state_timer = 0;
 let baseColor = [255, 255, 255];
 let ledInfo = []; // Stores the state for each pixel
+let lastRandomColors = random_colors;
+let lastUserColor = user_color;
 
 // -------------------------------------------------------------------
 // COLOR UTILITIES
@@ -63,7 +67,8 @@ function resetLedInfo() {
         ledInfo.push({
             color: [0,0,0],
             fadeStartTime: 0,
-            fadeDuration: 0
+            fadeDuration: 0,
+            fading: false
         });
     }
 }
@@ -82,7 +87,6 @@ function update(currentTime) {
         return;
     }
     
-    // Ensure our state array matches the canvas size
     if (ledInfo.length !== canvasWidth * canvasHeight) {
         resetLedInfo();
     }
@@ -94,6 +98,7 @@ function update(currentTime) {
         if (state_timer >= off_time) {
             currentState = "fadeIn";
             state_timer = 0;
+            // Set new color at the beginning of each cycle
             baseColor = random_colors ? randomRgb() : hexToRgb(user_color);
         }
     } 
@@ -104,56 +109,68 @@ function update(currentTime) {
         }
     }
     else if (currentState === "on") {
-        // This state is transitional. It runs once to set up the random fade times for the next state.
+        let allFadedOut = true;
         for (let i = 0; i < ledInfo.length; i++) {
-            ledInfo[i].fadeStartTime = currentTime + (Math.random() * fade_out_time / 2);
-            ledInfo[i].fadeDuration = (Math.random() * fade_out_time / 2) + (fade_out_time / 2);
-        }
-        currentState = "fadeOut";
-        state_timer = 0;
-    }
-    else if (currentState === "fadeOut") {
-        let allFaded = true;
-        for (let i = 0; i < ledInfo.length; i++) {
+            if (!ledInfo[i].fading) {
+                ledInfo[i].fadeStartTime = currentTime + (Math.random() * fade_out_time / 2);
+                ledInfo[i].fadeDuration = (Math.random() * fade_out_time / 2) + (fade_out_time / 2);
+                ledInfo[i].fading = true;
+            }
             if (ledInfo[i].color[0] > 0 || ledInfo[i].color[1] > 0 || ledInfo[i].color[2] > 0) {
-                allFaded = false;
-                break;
+                allFadedOut = false;
             }
         }
-        if (allFaded) {
+        if (allFadedOut) {
             currentState = "off";
             state_timer = 0;
+            // Clear fading state for the next cycle
+            for (let i = 0; i < ledInfo.length; i++) {
+                ledInfo[i].fading = false;
+            }
         }
     }
-    
-    // --- Render ---
-    const imageData = ctx.createImageData(canvasWidth, canvasHeight);
-    const data = imageData.data;
 
-    for (let i = 0; i < ledInfo.length; i++) {
-        let finalColor = [0,0,0];
-        if (currentState === "fadeIn") {
-            const factor = Math.min(1.0, state_timer / fade_in_time);
-            finalColor = lerpColor([0,0,0], baseColor, factor);
-        } else if (currentState === "fadeOut") {
+    // --- Render ---
+    for(let i = 0; i < pixels.length; i += 4) {
+        pixels[i] = 0;
+        pixels[i+1] = 0;
+        pixels[i+2] = 0;
+        pixels[i+3] = 255;
+    }
+
+    if (currentState === "fadeIn") {
+        const factor = Math.min(1.0, state_timer / fade_in_time);
+        const finalColor = lerpColor([0,0,0], baseColor, factor);
+        for(let i = 0; i < pixels.length; i += 4) {
+            pixels[i] = Math.round(finalColor[0]);
+            pixels[i+1] = Math.round(finalColor[1]);
+            pixels[i+2] = Math.round(finalColor[2]);
+        }
+    } else if (currentState === "on") {
+        for(let i = 0; i < pixels.length; i += 4) {
+            pixels[i] = Math.round(baseColor[0]);
+            pixels[i+1] = Math.round(baseColor[1]);
+            pixels[i+2] = Math.round(baseColor[2]);
+        }
+    } else if (currentState === "fadeOut") {
+        for (let i = 0; i < ledInfo.length; i++) {
             const led = ledInfo[i];
+            let finalColor;
             if(currentTime >= led.fadeStartTime) {
                 const factor = Math.min(1.0, (currentTime - led.fadeStartTime) / led.fadeDuration);
                 finalColor = lerpColor(baseColor, [0,0,0], factor);
-                led.color = finalColor; // Update state for completion check
+                led.color = finalColor;
             } else {
                 finalColor = baseColor;
             }
-        } else if (currentState === "on") {
-            finalColor = baseColor;
+            
+            const index = i * 4;
+            pixels[index] = Math.round(finalColor[0]);
+            pixels[index+1] = Math.round(finalColor[1]);
+            pixels[index+2] = Math.round(finalColor[2]);
         }
-        
-        const index = i * 4;
-        data[index] = finalColor[0];
-        data[index + 1] = finalColor[1];
-        data[index + 2] = finalColor[2];
-        data[index + 3] = 255;
     }
+    
     ctx.putImageData(imageData, 0, 0);
 
     requestAnimationFrame(update);
@@ -161,6 +178,5 @@ function update(currentTime) {
 
 // Initial call
 requestAnimationFrame(update);
-
 </script>
 </html>

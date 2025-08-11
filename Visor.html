@@ -1,19 +1,18 @@
-<!DOCTYPE html>
+<!DOCTYPE html><!--Original code: https://gitlab.com/OpenRGBDevelopers/OpenRGBEffectsPlugin/-/tree/master?ref_type=heads-->
 <html>
 <head>
-    <title>Visor</title>
-    <meta description="A back and forth effect motion, flipping colors.">
-    <meta publisher="Jose Miranda (Conversion and improvements)">
+    <title>ORGB: Swap</title>
+    <meta description="Alternate two colors on your devices from left to right.">
+    <meta publisher="Jose Miranda (Port and improvements)">
 
-    <meta property="speed" label="Speed" type="number" min="1" max="100" default="50">
-    <meta property="width" label="Width" type="number" min="1" max="100" default="20">
+    <meta property="speed" label="Speed" type="number" min="1" max="20" default="10">
     <meta property="random_colors" label="Random Colors" type="boolean" default="false">
     <meta property="color1" label="Color 1" type="color" default="#ff0000">
-    <meta property="color2" label="Color 2" type="color" default="#000000">
+    <meta property="color2" label="Color 2" type="color" default="#0000ff">
 </head>
 
 <body style="margin: 0; padding: 0;">
-    <canvas id="visor-canvas" width="320" height="200"></canvas>
+    <canvas id="swap-canvas" width="320" height="200"></canvas>
 </body>
 
 <script>
@@ -21,16 +20,16 @@
 // SETUP
 // -------------------------------------------------------------------
 
-const canvas = document.getElementById('visor-canvas');
+const canvas = document.getElementById('swap-canvas');
 const ctx = canvas.getContext('2d');
 const canvasWidth = canvas.width;
 const canvasHeight = canvas.height;
 
 // Effect state variables
-let progress = 0.0;
-let last_step = false;
+let time = 0.0;
 let color_a = [255, 0, 0];
-let color_b = [0, 0, 0];
+let color_b = [0, 0, 255];
+let last_direction = false;
 
 // -------------------------------------------------------------------
 // COLOR UTILITIES
@@ -48,45 +47,18 @@ function randomRgb() {
     return [Math.random() * 255, Math.random() * 255, Math.random() * 255];
 }
 
-function applyBrightness(rgb, brightness) {
-    return [rgb[0] * brightness, rgb[1] * brightness, rgb[2] * brightness];
-}
-
-/** Linearly interpolates between two colors */
-function lerpColor(c1, c2, factor) {
-    const r = c1[0] * (1 - factor) + c2[0] * factor;
-    const g = c1[1] * (1 - factor) + c2[1] * factor;
-    const b = c1[2] * (1 - factor) + c2[2] * factor;
-    return [r, g, b];
-}
-
 // -------------------------------------------------------------------
 // EFFECT LOGIC
 // -------------------------------------------------------------------
 
-function getColor(x, w, p_step, step) {
-    const visor_width = Math.max(1.5 / w, width / 100.0);
-    const x_step = p_step * (1.0 + 4.0 * visor_width) - 1.5 * visor_width;
-    const x_norm = x / (w - 1);
-    const dist = x_step - x_norm;
-
-    // Fade the head of the visor
-    if (dist < 0) {
-        const brightness = Math.max(0.0, Math.min(1.0, (visor_width + dist) / visor_width));
-        return step ? applyBrightness(color_b, brightness) : applyBrightness(color_a, brightness);
-    }
-
-    // Fade the tail of the visor
-    if (dist > visor_width) {
-        const brightness = Math.max(0.0, Math.min(1.0, 1.0 - ((dist - visor_width) / visor_width)));
-        return step ? applyBrightness(color_a, brightness) : applyBrightness(color_b, brightness);
-    }
+function getColor(x, w, progress, direction) {
+    // Determine the position of the wipe's edge
+    const wipe_position = direction ? progress : 1.0 - progress;
     
-    // Interpolate colors within the main body of the visor
-    const factor = Math.min(1.0, Math.max(0.0, (visor_width - dist) / visor_width));
-    const finalColor = step ? lerpColor(color_a, color_b, factor) : lerpColor(color_b, color_a, factor);
+    // If the pixel is behind the wipe, it's color A, otherwise it's color B
+    const final_color = x / w <= wipe_position ? color_a : color_b;
     
-    return `rgb(${finalColor[0]}, ${finalColor[1]}, ${finalColor[2]})`;
+    return `rgb(${final_color[0]}, ${final_color[1]}, ${final_color[2]})`;
 }
 
 // -------------------------------------------------------------------
@@ -104,35 +76,36 @@ function update(currentTime) {
     }
 
     // --- Update State ---
-    progress += 0.01 * speed * deltaTime * 60;
-
-    const p = progress % 1.0;
-    const step = p < 0.5; // true for left-to-right, false for right-to-left
-    const p_step = step ? 2.0 * p : 2.0 * (1.0 - p);
     
-    const is_flipping = (last_step !== step);
+    time += 0.1 * speed * deltaTime;
+    
+    // `progress` is the fractional part of time, representing one wipe pass (0.0 to 1.0)
+    const progress = time % 1.0;
+    // `direction` determines which way the wipe is going
+    const direction = Math.floor(time) % 2 === 0;
 
-    if (is_flipping) {
-        last_step = step;
+    // When the direction changes, pick a new random color for the side that was just revealed
+    if (direction !== last_direction) {
         if (random_colors) {
-            color_a = randomRgb();
-            color_b = randomRgb();
+            if (direction) { // Was false, now true (wiping left to right)
+                color_a = randomRgb();
+            } else { // Was true, now false (wiping right to left)
+                color_b = randomRgb();
+            }
         }
     }
-    
+    last_direction = direction;
+
     if (!random_colors) {
         color_a = hexToRgb(color1);
         color_b = hexToRgb(color2);
     }
-
+    
     // --- Render ---
+    // This is a horizontal effect, so we can calculate each column's color once
     for (let x = 0; x < canvasWidth; x++) {
-        const rgb = getColor(x, canvasWidth, p_step, step);
-        if (typeof rgb === 'string') { // getColor can return a string
-            ctx.fillStyle = rgb;
-        } else { // Or an array
-            ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
-        }
+        const colColor = getColor(x, canvasWidth, progress, direction);
+        ctx.fillStyle = colColor;
         ctx.fillRect(x, 0, 1, canvasHeight);
     }
     

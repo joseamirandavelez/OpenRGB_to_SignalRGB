@@ -1,13 +1,13 @@
-<!DOCTYPE html>
+<!DOCTYPE html><!--Original code: https://gitlab.com/OpenRGBDevelopers/OpenRGBEffectsPlugin/-/tree/master?ref_type=heads-->
 <html>
 <head>
-    <title>Random Spin</title>
+    <title>ORGB: Random Spin</title>
     <meta description="A simple Random Spin for your devices.">
-    <meta publisher="Jose Miranda (Conversion and improvements)">
+    <meta publisher="Jose Miranda (Port and improvements)">
 
     <meta property="speed" label="Speed" type="number" min="1" max="100" default="50">
-    <meta property="color1" label="Color 1" type="color" default="#ff0000">
-    <meta property="color2" label="Color 2" type="color" default="#0000ff">
+    <meta property="color1" label="Color 1" type="color" min="0" max="360" default="#ff0000">
+    <meta property="color2" label="Color 2" type="color" min="0" max="360" default="#0000ff">
 </head>
 
 <body style="margin: 0; padding: 0;">
@@ -23,6 +23,8 @@ const canvas = document.getElementById('randomspin-canvas');
 const ctx = canvas.getContext('2d');
 const canvasWidth = canvas.width;
 const canvasHeight = canvas.height;
+const imageData = ctx.createImageData(canvasWidth, canvasHeight);
+const pixels = imageData.data;
 
 // Gradient canvas for the spinner's colors
 const gradientCanvas = document.createElement('canvas');
@@ -42,6 +44,8 @@ let spinner = {
     stop: true,
     next_time_point: 0
 };
+let lastColorSettings = "";
+let lastSpeed = speed;
 
 // -------------------------------------------------------------------
 // HELPER FUNCTIONS
@@ -56,7 +60,6 @@ function custom_rand(min, max) {
 function generateGradient() {
     const grad = gradientCtx.createLinearGradient(0, 0, gradientCanvas.width, 0);
     
-    // This specific gradient structure is from the original C++ code
     grad.addColorStop(0.0, color1);
     grad.addColorStop(0.15, color1);
     grad.addColorStop(0.25, color2);
@@ -73,32 +76,10 @@ function generateGradient() {
 }
 
 // -------------------------------------------------------------------
-// EFFECT LOGIC
-// -------------------------------------------------------------------
-
-function getColor(x, w) {
-    if (!gradientData) return 'rgb(0,0,0)';
-
-    const current_progress = spinner.stop ? spinner.stop_progress : spinner.progress;
-    
-    let percent = (x / w) + Math.abs(current_progress);
-    percent = percent % 1.0; // Wrap the value between 0.0 and 1.0
-
-    const gradIndex = Math.floor(percent * (gradientCanvas.width - 1)) * 4;
-
-    const r = gradientData[gradIndex];
-    const g = gradientData[gradIndex + 1];
-    const b = gradientData[gradIndex + 2];
-    
-    return `rgb(${r}, ${g}, ${b})`;
-}
-
-// -------------------------------------------------------------------
 // MAIN ANIMATION LOOP
 // -------------------------------------------------------------------
 
 let lastTime = 0;
-let lastColorSettings = "";
 function update(currentTime) {
     const deltaTime = (currentTime - lastTime) / 1000;
     lastTime = currentTime;
@@ -136,18 +117,34 @@ function update(currentTime) {
     }
     
     // --- Render ---
+    const current_progress = spinner.stop ? spinner.stop_progress : spinner.progress;
+    
     for (let x = 0; x < canvasWidth; x++) {
-        const colColor = getColor(x, canvasWidth);
-        ctx.fillStyle = colColor;
-        ctx.fillRect(x, 0, 1, canvasHeight);
+        let percent = (x / canvasWidth) + Math.abs(current_progress);
+        percent = percent % 1.0;
+
+        const gradIndex = Math.floor(percent * (gradientCanvas.width - 1)) * 4;
+
+        const r = gradientData[gradIndex];
+        const g = gradientData[gradIndex + 1];
+        const b = gradientData[gradIndex + 2];
+        
+        for(let y = 0; y < canvasHeight; y++) {
+            const index = (y * canvasWidth + x) * 4;
+            pixels[index] = r;
+            pixels[index + 1] = g;
+            pixels[index + 2] = b;
+            pixels[index + 3] = 255;
+        }
     }
     
+    ctx.putImageData(imageData, 0, 0);
+
     requestAnimationFrame(update);
 }
 
 // Initial call
 generateGradient();
 requestAnimationFrame(update);
-
 </script>
 </html>

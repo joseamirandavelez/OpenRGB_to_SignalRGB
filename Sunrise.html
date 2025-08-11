@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+<!DOCTYPE html><!--Original code: https://gitlab.com/OpenRGBDevelopers/OpenRGBEffectsPlugin/-/tree/master?ref_type=heads-->
 <html>
 <head>
-    <title>Sunrise</title>
+    <title>ORGB: Sunrise</title>
     <meta description="Sunrise / Sunset effect.">
-    <meta publisher="Jose Miranda (Conversion and improvements)">
+    <meta publisher="Jose Miranda (Port and improvements)">
 
     <meta property="speed" label="Overall Speed" type="number" min="1" max="20" default="10">
     <meta property="intensity" label="Intensity (%)" type="number" min="1" max="99" default="80">
@@ -32,10 +32,11 @@ const canvas = document.getElementById('sunrise-canvas');
 const ctx = canvas.getContext('2d');
 const canvasWidth = canvas.width;
 const canvasHeight = canvas.height;
+const imageData = ctx.createImageData(canvasWidth, canvasHeight);
+const pixels = imageData.data;
 
-// A hidden canvas holds the pre-rendered gradient
 const gradientCanvas = document.createElement('canvas');
-gradientCanvas.width = 256; // Gradient resolution
+gradientCanvas.width = 256;
 gradientCanvas.height = 1;
 const gradientCtx = gradientCanvas.getContext('2d', { willReadFrequently: true });
 let gradientData = null;
@@ -50,9 +51,7 @@ let has_run_once = false;
 // HELPER FUNCTIONS
 // -------------------------------------------------------------------
 
-/** Generates the 4-stop gradient based on the current progress */
 function generateGradient() {
-    // The first color stop animates to create the intensity effect
     const first_stop = Math.min(intensity / 100.0, Math.pow(progress, 0.1 * intensity_speed));
     const second_stop = first_stop + (1 - first_stop) * 0.5;
 
@@ -67,36 +66,24 @@ function generateGradient() {
     gradientData = gradientCtx.getImageData(0, 0, gradientCanvas.width, 1).data;
 }
 
-// -------------------------------------------------------------------
-// EFFECT LOGIC
-// -------------------------------------------------------------------
-
-function getColor(x, y, w, h) {
-    if (!gradientData) return 'rgb(0,0,0)';
+function getGradientColor(percent) {
+    if (!gradientData) return [0, 0, 0];
     
-    // The sun's radius grows based on the animation progress
-    const real_radius = (radius / 100.0) * w * Math.pow(progress, 0.1 * grow_speed);
-
-    const centerX = w * 0.5;
-    const centerY = h * 0.5;
-    
-    // If motion is enabled, the sun moves up and down
-    const motion_offset = motion ? centerY * y_shift : 0;
-    
-    const distance = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY - motion_offset, 2));
-    
-    // Normalize the distance to a 0.0-1.0 value to be used as a lookup coordinate
-    let percent = Math.min(1.0, distance / real_radius);
-    if (isNaN(percent)) percent = 1.0; // Avoid issues if radius is zero
-
-    // Map the coordinate to an index in our gradient data array
+    percent = Math.min(1.0, Math.max(0.0, percent));
     const gradIndex = Math.floor(percent * (gradientCanvas.width - 1)) * 4;
 
     const r = gradientData[gradIndex];
     const g = gradientData[gradIndex + 1];
     const b = gradientData[gradIndex + 2];
     
-    return `rgb(${r}, ${g}, ${b})`;
+    return [r, g, b];
+}
+
+function reset() {
+    time = 0.0;
+    progress = 0.0;
+    y_shift = -1.0;
+    has_run_once = false;
 }
 
 // -------------------------------------------------------------------
@@ -113,42 +100,54 @@ function update(currentTime) {
         return;
     }
 
-    // --- Update State ---
-    
-    // Stop updating if "Run Only Once" is checked and the animation has finished
     if (run_once && has_run_once) {
         requestAnimationFrame(update);
         return;
     }
     
     time += 0.1 * speed * deltaTime;
-
+    
     if (run_once) {
         progress = Math.min(1.0, time);
         y_shift = 0;
         if (progress >= 1.0) has_run_once = true;
     } else {
-        // Use a sine wave for a continuous looping animation
         progress = 0.5 * (1 + Math.sin(time));
         y_shift = -1 + 2 * progress;
     }
     
-    // The gradient must be regenerated every frame because its stops are animated
     generateGradient();
     
-    // --- Render ---
+    const real_radius = (radius / 100.0) * canvasWidth * Math.pow(progress, 0.1 * grow_speed);
+    const centerX = canvasWidth * 0.5;
+    const centerY = canvasHeight * 0.5;
+    const motion_offset = motion ? centerY * y_shift : 0;
+    
     for (let y = 0; y < canvasHeight; y++) {
         for (let x = 0; x < canvasWidth; x++) {
-            ctx.fillStyle = getColor(x, y, canvasWidth, canvasHeight);
-            ctx.fillRect(x, y, 1, 1);
+            const pixelIndex = (y * canvasWidth + x) * 4;
+
+            const distance = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY - motion_offset, 2));
+            
+            let percent = 1.0;
+            if (real_radius > 0) {
+                percent = Math.min(1.0, distance / real_radius);
+            }
+
+            const finalColor = getGradientColor(percent);
+
+            pixels[pixelIndex] = finalColor[0];
+            pixels[pixelIndex + 1] = finalColor[1];
+            pixels[pixelIndex + 2] = finalColor[2];
+            pixels[pixelIndex + 3] = 255;
         }
     }
+    
+    ctx.putImageData(imageData, 0, 0);
     
     requestAnimationFrame(update);
 }
 
-// Initial call
 requestAnimationFrame(update);
-
 </script>
 </html>

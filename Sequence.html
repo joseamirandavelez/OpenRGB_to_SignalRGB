@@ -1,21 +1,21 @@
-<!DOCTYPE html>
+<!DOCTYPE html><!--Original code: https://gitlab.com/OpenRGBDevelopers/OpenRGBEffectsPlugin/-/tree/master?ref_type=heads-->
 <html>
 <head>
-    <title>Sequence</title>
+    <title>ORGB: Sequence</title>
     <meta description="Alternates colors with a fade effect.">
-    <meta publisher="Jose Miranda (Conversion and improvements)">
+    <meta publisher="Jose Miranda (Port and improvements)">
 
     <meta property="speed" label="Speed" type="number" min="1" max="20" default="10">
     <meta property="fade_time" label="Fade Time" type="number" min="1" max="100" default="50">
     
-    <meta property="color1" label="Color 1" type="color" default="#ff0000">
-    <meta property="color2" label="Color 2" type="color" default="#00ff00">
-    <meta property="color3" label="Color 3" type="color" default="#0000ff">
-    <meta property="color4" label="Color 4" type="color" default="#ffff00">
-    <meta property="color5" label="Color 5" type="color" default="#000000">
-    <meta property="color6" label="Color 6" type="color" default="#000000">
-    <meta property="color7" label="Color 7" type="color" default="#000000">
-    <meta property="color8" label="Color 8" type="color" default="#000000">
+    <meta property="color1" label="Color 1" type="color" min="0" max="360" default="#ff0000">
+    <meta property="color2" label="Color 2" type="color" min="0" max="360" default="#00ff00">
+    <meta property="color3" label="Color 3" type="color" min="0" max="360" default="#0000ff">
+    <meta property="color4" label="Color 4" type="color" min="0" max="360" default="#ffff00">
+    <meta property="color5" label="Color 5" type="color" min="0" max="360" default="#000000">
+    <meta property="color6" label="Color 6" type="color" min="0" max="360" default="#000000">
+    <meta property="color7" label="Color 7" type="color" min="0" max="360" default="#000000">
+    <meta property="color8" label="Color 8" type="color" min="0" max="360" default="#000000">
 </head>
 
 <body style="margin: 0; padding: 0;">
@@ -29,9 +29,14 @@
 
 const canvas = document.getElementById('sequence-canvas');
 const ctx = canvas.getContext('2d');
+const canvasWidth = canvas.width;
+const canvasHeight = canvas.height;
 
 // Effect state variables
 let progress = 0.0;
+let lastColors = [];
+let lastSpeed = speed;
+let lastFadeTime = fade_time;
 
 // -------------------------------------------------------------------
 // COLOR UTILITIES
@@ -66,46 +71,51 @@ function update(currentTime) {
         requestAnimationFrame(update);
         return;
     }
-
-    // --- Update State ---
-
-    // Collect user colors, filtering out black/empty ones
-    const colors = [color1, color2, color3, color4, color5, color6, color7, color8]
+    
+    // Check for changes in meta properties and update colors
+    const currentMetaColors = [color1, color2, color3, color4, color5, color6, color7, color8];
+    const newColors = currentMetaColors
         .filter(c => c && c !== "#000000")
         .map(hexToRgb);
-    
-    if (colors.length === 0) {
+
+    if (JSON.stringify(newColors) !== JSON.stringify(lastColors) || speed !== lastSpeed || fade_time !== lastFadeTime) {
+        lastColors = newColors;
+        lastSpeed = speed;
+        lastFadeTime = fade_time;
+        progress = 0.0; // Restart animation on change
+    }
+
+    if (lastColors.length === 0) {
         ctx.fillStyle = 'black';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
         requestAnimationFrame(update);
         return;
     }
     
-    const color_count = colors.length;
+    // --- Update State ---
+    const color_count = lastColors.length;
     const current_color_index = Math.floor(progress) % color_count;
     const frac = progress % 1.0;
 
     let final_color;
-    let fade_mult = 1.0;
+    
+    const fade_threshold = fade_time / 100.0;
+    const hold_duration = 1.0 - fade_threshold;
 
-    // The last 20% of the cycle is the fade period (frac >= 0.8)
-    if (frac >= 0.8) {
+    if (frac >= hold_duration) {
        const next_color_index = (current_color_index + 1) % color_count;
-       const fade_progress = (frac - 0.8) * 5; // Scale 0.8-1.0 range to 0.0-1.0
-       final_color = lerpColor(colors[current_color_index], colors[next_color_index], fade_progress);
-       // The fade speed is controlled by the slider
-       fade_mult = 1.0 / (fade_time/10);
+       const fade_progress = (frac - hold_duration) / fade_threshold;
+       final_color = lerpColor(lastColors[current_color_index], lastColors[next_color_index], fade_progress);
     } else {
-        // Hold the current color
-        final_color = colors[current_color_index];
+        final_color = lastColors[current_color_index];
     }
     
-    // Increment progress for the next frame
-    progress += fade_mult * 0.1 * speed * deltaTime;
+    const increment = (speed / 10.0) * deltaTime;
+    progress += increment;
 
     // --- Render ---
-    ctx.fillStyle = `rgb(${final_color[0]}, ${final_color[1]}, ${final_color[2]})`;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = `rgb(${Math.round(final_color[0])}, ${Math.round(final_color[1])}, ${Math.round(final_color[2])})`;
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     
     requestAnimationFrame(update);
 }

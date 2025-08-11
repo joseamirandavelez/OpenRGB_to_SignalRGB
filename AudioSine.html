@@ -1,15 +1,15 @@
-<!DOCTYPE html>
+<!DOCTYPE html><!--Original code: https://gitlab.com/OpenRGBDevelopers/OpenRGBEffectsPlugin/-/tree/master?ref_type=heads-->
 <html>
 <head>
     <title>Audio Sine</title>
     <meta description="Sinusoidal audio rendering.">
-    <meta publisher="Jose Miranda (Conversion and improvements)">
+    <meta publisher="Jose Miranda (Port and improvements)">
 
-    <meta property="speed" label="Wave Speed" type="number" min="1" max="100" default="50">
-    <meta property="repeat" label="Repeat" type="number" min="1" max="40" default="10">
+    <meta property="speed" label="Wave Speed" type="number" min="1" max="100" default="10">
+    <meta property="repeat" label="Repeat" type="number" min="1" max="40" default="1">
     <meta property="glow" label="Glow" type="number" min="1" max="100" default="50">
     <meta property="thickness" label="Thickness" type="number" min="0" max="100" default="10">
-    <meta property="oscillation" label="Oscillation" type="number" min="0" max="100" default="20">
+    <meta property="oscillation" label="Oscillation" type="number" min="0" max="100" default="100">
     <meta property="color_mode" label="Color Mode" type="list" values="Spectrum Cycle,Static" default="Spectrum Cycle">
     <meta property="color_change_speed" label="Cycle Speed" type="number" min="0" max="100" default="50">
     <meta property="wave_color" label="Wave Color" type="color" default="#00ff00">
@@ -29,12 +29,19 @@ const canvas = document.getElementById('audiosine-canvas');
 const ctx = canvas.getContext('2d');
 const canvasWidth = canvas.width;
 const canvasHeight = canvas.height;
+const imageData = ctx.createImageData(canvasWidth, canvasHeight);
+const pixels = imageData.data;
 
 // Effect state variables
 let x_time = 0.0;
 let oscillation_time = 0.0;
 let color_time = 0.0;
 let height_mult = 1.0;
+let last_wave_color = '';
+let last_background_color = '';
+let waveRgb = [0, 255, 0];
+let backgroundRgb = [0, 0, 0];
+const sineValues = new Float32Array(canvasWidth);
 
 // -------------------------------------------------------------------
 // COLOR UTILITIES
@@ -48,11 +55,14 @@ function hsvToRgb(h, s, v) {
     const q = v * (1 - f * s);
     const t = v * (1 - (1 - f) * s);
     switch (i % 6) {
-        case 0: r = v, g = t, b = p; break; case 1: r = q, g = v, b = p; break;
-        case 2: r = p, g = v, b = t; break; case 3: r = p, g = q, b = v; break;
-        case 4: r = t, g = p, b = v; break; case 5: r = v, g = p, b = q; break;
+        case 0: r = v, g = t, b = p; break;
+        case 1: r = q, g = v, b = p; break;
+        case 2: r = p, g = v, b = t; break;
+        case 3: r = p, g = q, b = v; break;
+        case 4: r = t, g = p, b = v; break;
+        case 5: r = v, g = p, b = q; break;
     }
-    return [r * 255, g * 255, b * 255];
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
 }
 
 function hexToRgb(hex) {
@@ -75,44 +85,36 @@ function lerpColor(c1, c2, f) {
 // EFFECT LOGIC
 // -------------------------------------------------------------------
 
-function getSineValue(x, w, audioData) {
-    let value = 0.0;
+function precalculateSineValues(audioData) {
     const pi = Math.PI;
-    const x_pos = x + (speed > 0 ? x_time : 0);
-    const x_percent = x_pos / w;
-    const avg_size = 4; // A reasonable default for averaging FFT bins
+    const x_pos = x_time;
+    const avg_size = 4;
 
-    for (let i = 0; i < 200; i += avg_size) {
-        const amp = Math.abs(audioData[i]) / 128.0;
-        value += height_mult * amp * Math.sin(x_percent * 0.25 * repeat * (i / avg_size) * pi);
+    for (let x = 0; x < canvasWidth; x++) {
+        let value = 0.0;
+        const x_percent = (x + x_pos) / canvasWidth;
+
+        for (let i = 0; i < 200; i += avg_size) {
+            const amp = Math.abs(audioData[i]) / 128.0;
+            value += height_mult * amp * Math.sin(x_percent * 0.25 * repeat * (i / avg_size) * pi);
+        }
+        sineValues[x] = value;
     }
-    return value;
 }
 
-function getColor(sine_value, y, h) {
-    const half_height = h * 0.5;
+function getFinalColor(sine_value, y) {
+    const half_height = canvasHeight * 0.5;
     const peak = half_height + sine_value * half_height;
     const real_distance = Math.abs(peak - y);
 
-    // Calculate the fade distance based on thickness and glow
-    const distance_factor = real_distance > (0.01 * thickness * h) 
-        ? Math.pow(real_distance / h, 0.01 * glow) 
+    const distance_factor = real_distance > (0.01 * thickness * canvasHeight) 
+        ? Math.pow(real_distance / canvasHeight, 0.01 * glow) 
         : 0;
     
     const distance = Math.min(1.0, Math.max(0.0, distance_factor));
+    const final_color = lerpColor(backgroundRgb, waveRgb, 1 - distance);
 
-    let waveRgb;
-    if (color_mode === "Spectrum Cycle") {
-        const hue = (color_time * 360) % 360 / 360.0; // Cycle hue from 0 to 1
-        waveRgb = hsvToRgb(hue, 1, 1);
-    } else { // Static
-        waveRgb = hexToRgb(wave_color);
-    }
-
-    const backgroundRgb = hexToRgb(background_color);
-    
-    // Interpolate between the wave color and background color based on distance
-    return lerpColor(backgroundRgb, waveRgb, 1 - distance);
+    return [Math.round(final_color[0]), Math.round(final_color[1]), Math.round(final_color[2])];
 }
 
 // -------------------------------------------------------------------
@@ -135,24 +137,45 @@ function update(currentTime) {
     x_time += speed * deltaTime;
     oscillation_time += oscillation * deltaTime;
     color_time += (color_change_speed / 100) * deltaTime;
-    height_mult = oscillation > 0 ? Math.sin(oscillation_time * 0.1) : 1;
+    height_mult = oscillation > 0 ? 0.5 + 0.5 * Math.sin(oscillation_time * 0.1) : 1;
 
-    // Render each pixel on the canvas
-    for (let y = 0; y < canvasHeight; y++) {
-        for (let x = 0; x < canvasWidth; x++) {
-            const sine_value = getSineValue(x, canvasWidth, audioData);
-            const finalColor = getColor(sine_value, y, canvasHeight);
-            
-            ctx.fillStyle = `rgb(${finalColor[0]}, ${finalColor[1]}, ${finalColor[2]})`;
-            ctx.fillRect(x, y, 1, 1);
+    // Pre-calculate the sine values for each column
+    precalculateSineValues(audioData);
+
+    // Update colors based on mode
+    if (color_mode === "Spectrum Cycle") {
+        const hue = (color_time * 360) % 360 / 360.0;
+        waveRgb = hsvToRgb(hue, 1, 1);
+    } else {
+        if (wave_color !== last_wave_color) {
+            waveRgb = hexToRgb(wave_color);
+            last_wave_color = wave_color;
         }
     }
+    if (background_color !== last_background_color) {
+        backgroundRgb = hexToRgb(background_color);
+        last_background_color = background_color;
+    }
+
+    // Render using ImageData
+    for (let y = 0; y < canvasHeight; y++) {
+        for (let x = 0; x < canvasWidth; x++) {
+            const pixelIndex = (y * canvasWidth + x) * 4;
+            const sine_value = sineValues[x];
+            const finalColor = getFinalColor(sine_value, y);
+            
+            pixels[pixelIndex] = finalColor[0];
+            pixels[pixelIndex + 1] = finalColor[1];
+            pixels[pixelIndex + 2] = finalColor[2];
+            pixels[pixelIndex + 3] = 255;
+        }
+    }
+    ctx.putImageData(imageData, 0, 0);
 
     requestAnimationFrame(update);
 }
 
 // Initial call to start the animation
 requestAnimationFrame(update);
-
 </script>
 </html>

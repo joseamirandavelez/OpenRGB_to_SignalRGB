@@ -1,12 +1,13 @@
-<!DOCTYPE html>
+<!DOCTYPE html><!--Original code: https://gitlab.com/OpenRGBDevelopers/OpenRGBEffectsPlugin/-/tree/master?ref_type=heads-->
 <html>
 <head>
-    <title>Motion Points</title>
+    <title>ORGB: Motion Points</title>
     <meta description="Multiple points that move in all directions on your devices.">
-    <meta publisher="Jose Miranda (Conversion and improvements)">
+    <meta publisher="Jose Miranda (Port and improvements)">
 
     <meta property="speed" label="Speed" type="number" min="1" max="200" default="100">
     <meta property="number_of_points" label="Number of Points" type="number" min="1" max="100" default="20">
+    <meta property="point_size" label="Point Size" type="number" min="1" max="10" default="1">
     <meta property="random_colors" label="Random Colors" type="boolean" default="true">
     <meta property="color1" label="Color 1" type="color" default="#ff0000">
     <meta property="color2" label="Color 2" type="color" default="#0000ff">
@@ -25,9 +26,18 @@ const canvas = document.getElementById('motionpoints-canvas');
 const ctx = canvas.getContext('2d');
 const canvasWidth = canvas.width;
 const canvasHeight = canvas.height;
+const imageData = ctx.createImageData(canvasWidth, canvasHeight);
+const pixels = imageData.data;
 
 // This array will store all the active point objects
 let points = [];
+let lastNumberOfPoints = -1;
+let lastRandomColors = false;
+let lastColor1 = '';
+let lastColor2 = '';
+let lastSpeed = -1;
+let lastPointSize = -1;
+
 
 // -------------------------------------------------------------------
 // COLOR UTILITIES
@@ -53,25 +63,22 @@ function applyBrightness(rgb, brightness) {
 // POINT LOGIC
 // -------------------------------------------------------------------
 
-/**
- * Initializes or re-initializes a point's properties.
- * It's given a random direction, speed, color, and starting position at an edge.
- */
-function initPoint(point) {
+function getRandomColor() {
     const userColors = [color1, color2].filter(c => c && c !== "#000000");
-    
-    point.dir = Math.floor(Math.random() * 4); // 0:Left, 1:Right, 2:Up, 3:Down
-    point.speed_mult = Math.random() + 1; // 1.0 to 2.0
-    
     if (random_colors) {
-        point.color = randomRgb();
+        return randomRgb();
     } else if (userColors.length > 0) {
-        point.color = hexToRgb(userColors[Math.floor(Math.random() * userColors.length)]);
-    } else {
-        point.color = [255, 255, 255]; // Failsafe
+        return hexToRgb(userColors[Math.floor(Math.random() * userColors.length)]);
     }
-    
-    switch(point.dir) {
+    return [255, 255, 255]; // Failsafe
+}
+
+function initPoint(point) {
+    point.speed_mult = Math.random() * 0.5 + 0.5;
+    point.color = getRandomColor();
+    const dir = Math.floor(Math.random() * 4);
+
+    switch(dir) {
         case 0: // LEFT
             point.x = 1.0;
             point.y = Math.random();
@@ -89,27 +96,8 @@ function initPoint(point) {
             point.y = 0.0;
             break;
     }
+    point.dir = dir;
 }
-
-/**
- * Moves a point based on its direction, speed, and the frame's delta time.
- */
-function movePoint(point, delta) {
-    switch(point.dir) {
-        case 0: point.x -= delta; break; // LEFT
-        case 1: point.x += delta; break; // RIGHT
-        case 2: point.y -= delta; break; // UP
-        case 3: point.y += delta; break; // DOWN
-    }
-}
-
-/**
- * Checks if a point has moved outside the 0.0-1.0 boundary.
- */
-function isPointOut(point) {
-    return point.x < 0 || point.y < 0 || point.x > 1 || point.y > 1;
-}
-
 
 // -------------------------------------------------------------------
 // MAIN ANIMATION LOOP
@@ -125,7 +113,16 @@ function update(currentTime) {
         return;
     }
 
-    // --- Update State ---
+    // Check for changes in meta properties and re-initialize if needed
+    if(number_of_points !== lastNumberOfPoints || random_colors !== lastRandomColors ||
+       color1 !== lastColor1 || color2 !== lastColor2 || point_size !== lastPointSize) {
+        points = [];
+        lastNumberOfPoints = number_of_points;
+        lastRandomColors = random_colors;
+        lastColor1 = color1;
+        lastColor2 = color2;
+        lastPointSize = point_size;
+    }
     
     // Adjust the number of points if the slider changes
     while (points.length < number_of_points) {
@@ -140,46 +137,47 @@ function update(currentTime) {
     // Move each point and re-initialize it if it goes off-screen
     const move_delta = 0.005 * (speed/10) * deltaTime * 60;
     for (const point of points) {
-        movePoint(point, move_delta * point.speed_mult);
-        if (isPointOut(point)) {
+        switch(point.dir) {
+            case 0: point.x -= move_delta * point.speed_mult; break;
+            case 1: point.x += move_delta * point.speed_mult; break;
+            case 2: point.y -= move_delta * point.speed_mult; break;
+            case 3: point.y += move_delta * point.speed_mult; break;
+        }
+
+        if (point.x < 0 || point.y < 0 || point.x > 1 || point.y > 1) {
             initPoint(point);
         }
     }
 
     // --- Render ---
-    ctx.fillStyle = 'black';
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    for(let i = 0; i < pixels.length; i += 4) {
+        pixels[i] = 0;
+        pixels[i+1] = 0;
+        pixels[i+2] = 0;
+        pixels[i+3] = 255;
+    }
 
-    const imageData = ctx.createImageData(canvasWidth, canvasHeight);
-    const data = imageData.data;
-
-    // This is more efficient than a getColor function for this effect.
-    // We draw each point onto the pixel buffer.
     for (const point of points) {
         const px = point.x * canvasWidth;
         const py = point.y * canvasHeight;
         
-        // Only draw pixels in a small box around the point for performance
-        const startX = Math.max(0, Math.floor(px - 2));
-        const endX = Math.min(canvasWidth, Math.ceil(px + 2));
-        const startY = Math.max(0, Math.floor(py - 2));
-        const endY = Math.min(canvasHeight, Math.ceil(py + 2));
+        const size = point_size;
 
-        for (let y = startY; y < endY; y++) {
-            for (let x = startX; x < endX; x++) {
+        for (let y = Math.floor(py - size); y < Math.ceil(py + size); y++) {
+            for (let x = Math.floor(px - size); x < Math.ceil(px + size); x++) {
+                if(x < 0 || x >= canvasWidth || y < 0 || y >= canvasHeight) continue;
+
                 const distance = Math.sqrt(Math.pow(px - x, 2) + Math.pow(py - y, 2));
                 
-                // If the pixel is within the point's 1-pixel radius, draw it
-                if (distance <= 1) {
-                    const brightness = 1 - distance;
+                if (distance <= size) {
+                    const brightness = 1 - (distance / size);
                     const finalColor = applyBrightness(point.color, brightness);
                     const index = (y * canvasWidth + x) * 4;
                     
-                    // We add to the existing pixel data to blend points that overlap
-                    data[index] = Math.min(255, data[index] + finalColor[0]);
-                    data[index + 1] = Math.min(255, data[index + 1] + finalColor[1]);
-                    data[index + 2] = Math.min(255, data[index + 2] + finalColor[2]);
-                    data[index + 3] = 255;
+                    pixels[index] = Math.min(255, pixels[index] + Math.round(finalColor[0]));
+                    pixels[index + 1] = Math.min(255, pixels[index + 1] + Math.round(finalColor[1]));
+                    pixels[index + 2] = Math.min(255, pixels[index + 2] + Math.round(finalColor[2]));
+                    pixels[index + 3] = 255;
                 }
             }
         }
@@ -192,6 +190,5 @@ function update(currentTime) {
 
 // Initial call
 requestAnimationFrame(update);
-
 </script>
 </html>

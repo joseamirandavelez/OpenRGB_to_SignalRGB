@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+<!DOCTYPE html><!--Original code: https://gitlab.com/OpenRGBDevelopers/OpenRGBEffectsPlugin/-/tree/master?ref_type=heads-->
 <html>
 <head>
-    <title>Hypnotoad</title>
+    <title>ORGB: Hypnotoad</title>
     <meta description="You wont escape this.">
-    <meta publisher="Jose Miranda (Conversion and improvements)">
+    <meta publisher="Jose Miranda (Port and improvements)">
 
     <meta property="animation_speed" label="Animation Speed" type="number" min="10" max="100" default="50">
     <meta property="color_rotation_speed" label="Rotation Speed" type="number" min="10" max="100" default="20">
@@ -15,10 +15,10 @@
     <meta property="color_rotation_direction" label="Rotation Direction" type="list" values="Clockwise,Counter-clockwise" default="Clockwise">
     
     <meta property="color_mode" label="Color Mode" type="list" values="Rainbow,Custom" default="Rainbow">
-    <meta property="color1" label="Color 1" type="color" default="#ff0000">
-    <meta property="color2" label="Color 2" type="color" default="#00ff00">
-    <meta property="color3" label="Color 3" type="color" default="#0000ff">
-    <meta property="color4" label="Color 4" type="color" default="#ff0000">
+    <meta property="color1" label="Color 1" type="color" min="0" max="360" default="#ff0000">
+    <meta property="color2" label="Color 2" type="color" min="0" max="360" default="#00ff00">
+    <meta property="color3" label="Color 3" type="color" min="0" max="360" default="#0000ff">
+    <meta property="color4" label="Color 4" type="color" min="0" max="360" default="#ff0000">
 </head>
 
 <body style="margin: 0; padding: 0;">
@@ -34,6 +34,8 @@ const canvas = document.getElementById('hypnotoad-canvas');
 const ctx = canvas.getContext('2d');
 const canvasWidth = canvas.width;
 const canvasHeight = canvas.height;
+const imageData = ctx.createImageData(canvasWidth, canvasHeight);
+const pixels = imageData.data;
 
 const gradientCanvas = document.createElement('canvas');
 gradientCanvas.width = 256;
@@ -41,11 +43,50 @@ gradientCanvas.height = 1;
 const gradientCtx = gradientCanvas.getContext('2d', { willReadFrequently: true });
 let gradientData = null;
 
-let progress = 1000.0;
+let progress = 0.0;
+let lastColorSettings = "";
+let lastColorMode = "";
 
 // -------------------------------------------------------------------
 // HELPER FUNCTIONS
 // -------------------------------------------------------------------
+
+/** Converts HSL values to an RGB array. */
+function hslToRgb(h, s, l) {
+    let r, g, b;
+    h = h / 360;
+    s = s / 100;
+    l = l / 100;
+
+    if (s === 0) {
+        r = g = b = l; // achromatic
+    } else {
+        const hue2rgb = (p, q, t) => {
+            if (t < 0) t += 1;
+            if (t > 1) t -= 1;
+            if (t < 1 / 6) return p + (q - p) * 6 * t;
+            if (t < 1 / 2) return q;
+            if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+            return p;
+        };
+
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        const p = 2 * l - q;
+        r = hue2rgb(p, q, h + 1 / 3);
+        g = hue2rgb(p, q, h);
+        b = hue2rgb(p, q, h - 1 / 3);
+    }
+
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+}
+
+function hexToRgb(hex) {
+    if (!hex) return [0, 0, 0];
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return [r, g, b];
+}
 
 function generateGradient() {
     let colors = [color1, color2, color3, color4].filter(c => c && c !== "#000000");
@@ -62,47 +103,10 @@ function generateGradient() {
 }
 
 // -------------------------------------------------------------------
-// EFFECT LOGIC
-// -------------------------------------------------------------------
-
-function getColor(x, y, w, h) {
-    const centerX = w * (center_x / 100.0);
-    const centerY = h * (center_y / 100.0);
-
-    const anim_dir = (animation_direction === "To the Inside") ? 1 : -1;
-    const color_rot_dir = (color_rotation_direction === "Clockwise") ? -1 : 1;
-
-    const anim_mult = 0.01 * animation_speed * anim_dir;
-    const color_mult = 0.01 * color_rotation_speed * color_rot_dir;
-
-    const angle = Math.atan2(y - centerY, x - centerX) * 180 / Math.PI;
-    const distance = Math.sqrt(Math.pow(centerX - x, 2) + Math.pow(centerY - y, 2));
-
-    // This formula creates the pulsating ring pattern
-    const value_wave = Math.cos(anim_mult * distance / (0.1 * spacing) + progress);
-    const brightness = Math.pow((value_wave + 1) * 0.5, (11 - thickness));
-
-    if (color_mode === "Rainbow") {
-        const hue = (angle + distance + progress * color_mult * color_rotation_speed) % 360;
-        return `hsl(${hue}, 100%, ${brightness * 50}%)`;
-    } else { // Custom color mode
-        if (!gradientData) return 'rgb(0,0,0)';
-        const color_lookup = (angle + distance + progress * color_mult * color_rotation_speed) % 360 / 360.0;
-        const gradIndex = Math.floor(Math.abs(color_lookup) * (gradientCanvas.width - 1)) * 4;
-        
-        const r = gradientData[gradIndex] * brightness;
-        const g = gradientData[gradIndex + 1] * brightness;
-        const b = gradientData[gradIndex + 2] * brightness;
-        return `rgb(${r}, ${g}, ${b})`;
-    }
-}
-
-// -------------------------------------------------------------------
 // MAIN ANIMATION LOOP
 // -------------------------------------------------------------------
 
 let lastTime = 0;
-let lastColorSettings = "";
 function update(currentTime) {
     const deltaTime = (currentTime - lastTime) / 1000;
     lastTime = currentTime;
@@ -113,25 +117,64 @@ function update(currentTime) {
     }
 
     // Update animation progress
-    progress += 0.1 * (speed / 10.0) * deltaTime * 60;
+    progress += 0.1 * (animation_speed / 10.0) * deltaTime * 60;
 
     // Regenerate custom gradient only when colors change
     if(color_mode === "Custom") {
         const currentSettings = color1 + color2 + color3 + color4;
-        if(currentSettings !== lastColorSettings) {
+        if(currentSettings !== lastColorSettings || color_mode !== lastColorMode) {
             generateGradient();
             lastColorSettings = currentSettings;
         }
     }
+    lastColorMode = color_mode;
 
     // Render
+    const centerX = canvasWidth * (center_x / 100.0);
+    const centerY = canvasHeight * (center_y / 100.0);
+
+    const anim_dir = (animation_direction === "To the Inside") ? 1 : -1;
+    const color_rot_dir = (color_rotation_direction === "Clockwise") ? -1 : 1;
+
+    const anim_mult = 0.01 * animation_speed * anim_dir;
+    const color_mult = 0.01 * color_rotation_speed * color_rot_dir;
+
+    const fade_mult = (11 - thickness);
+
     for (let y = 0; y < canvasHeight; y++) {
         for (let x = 0; x < canvasWidth; x++) {
-            ctx.fillStyle = getColor(x, y, canvasWidth, canvasHeight);
-            ctx.fillRect(x, y, 1, 1);
+            const pixelIndex = (y * canvasWidth + x) * 4;
+
+            const angle = Math.atan2(y - centerY, x - centerX) * 180 / Math.PI;
+            const distance = Math.sqrt(Math.pow(centerX - x, 2) + Math.pow(centerY - y, 2));
+
+            const value_wave = Math.cos(anim_mult * distance / (0.1 * spacing) + progress);
+            const brightness = Math.pow((value_wave + 1) * 0.5, fade_mult);
+
+            let finalRgb;
+            if (color_mode === "Rainbow") {
+                const hue = (angle + distance + progress * color_mult * color_rotation_speed) % 360;
+                finalRgb = hslToRgb(hue, 100, brightness * 50);
+            } else { // Custom color mode
+                if (!gradientData) continue;
+                const color_lookup = (angle + distance + progress * color_mult * color_rotation_speed) % 360 / 360.0;
+                const gradIndex = Math.floor(Math.abs(color_lookup) * (gradientCanvas.width - 1)) * 4;
+                
+                const r = gradientData[gradIndex] * brightness;
+                const g = gradientData[gradIndex + 1] * brightness;
+                const b = gradientData[gradIndex + 2] * brightness;
+                finalRgb = [Math.round(r), Math.round(g), Math.round(b)];
+            }
+
+            pixels[pixelIndex] = finalRgb[0];
+            pixels[pixelIndex + 1] = finalRgb[1];
+            pixels[pixelIndex + 2] = finalRgb[2];
+            pixels[pixelIndex + 3] = 255;
         }
     }
     
+    ctx.putImageData(imageData, 0, 0);
+
     requestAnimationFrame(update);
 }
 

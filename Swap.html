@@ -1,14 +1,14 @@
-<!DOCTYPE html>
+<!DOCTYPE html><!--Original code: https://gitlab.com/OpenRGBDevelopers/OpenRGBEffectsPlugin/-/tree/master?ref_type=heads-->
 <html>
 <head>
-    <title>Swap</title>
+    <title>ORGB: Swap</title>
     <meta description="Alternate two colors on your devices from left to right.">
-    <meta publisher="Jose Miranda (Conversion and improvements)">
+    <meta publisher="Jose Miranda (Port and improvements)">
 
     <meta property="speed" label="Speed" type="number" min="1" max="20" default="10">
     <meta property="random_colors" label="Random Colors" type="boolean" default="false">
-    <meta property="color1" label="Color 1" type="color" default="#ff0000">
-    <meta property="color2" label="Color 2" type="color" default="#0000ff">
+    <meta property="color1" label="Color 1" type="color" min="0" max="360" default="#ff0000">
+    <meta property="color2" label="Color 2" type="color" min="0" max="360" default="#0000ff">
 </head>
 
 <body style="margin: 0; padding: 0;">
@@ -24,12 +24,24 @@ const canvas = document.getElementById('swap-canvas');
 const ctx = canvas.getContext('2d');
 const canvasWidth = canvas.width;
 const canvasHeight = canvas.height;
+const imageData = ctx.createImageData(canvasWidth, canvasHeight);
+const pixels = imageData.data;
 
 // Effect state variables
 let time = 0.0;
 let color_a = [255, 0, 0];
 let color_b = [0, 0, 255];
 let last_direction = false;
+let last_random_colors = false;
+let last_color1 = '';
+let last_color2 = '';
+
+// Variables for smooth random color transition
+let current_random_a = [0, 0, 0];
+let current_random_b = [0, 0, 0];
+let next_random_a = [0, 0, 0];
+let next_random_b = [0, 0, 0];
+
 
 // -------------------------------------------------------------------
 // COLOR UTILITIES
@@ -47,18 +59,11 @@ function randomRgb() {
     return [Math.random() * 255, Math.random() * 255, Math.random() * 255];
 }
 
-// -------------------------------------------------------------------
-// EFFECT LOGIC
-// -------------------------------------------------------------------
-
-function getColor(x, w, progress, direction) {
-    // Determine the position of the wipe's edge
-    const wipe_position = direction ? progress : 1.0 - progress;
-    
-    // If the pixel is behind the wipe, it's color A, otherwise it's color B
-    const final_color = x / w <= wipe_position ? color_a : color_b;
-    
-    return `rgb(${final_color[0]}, ${final_color[1]}, ${final_color[2]})`;
+function lerpColor(c1, c2, factor) {
+    const r = c1[0] * (1 - factor) + c2[0] * factor;
+    const g = c1[1] * (1 - factor) + c2[1] * factor;
+    const b = c1[2] * (1 - factor) + c2[2] * factor;
+    return [r, g, b];
 }
 
 // -------------------------------------------------------------------
@@ -76,7 +81,7 @@ function update(currentTime) {
     }
 
     // --- Update State ---
-    
+    const old_time = time;
     time += 0.1 * speed * deltaTime;
     
     // `progress` is the fractional part of time, representing one wipe pass (0.0 to 1.0)
@@ -84,36 +89,78 @@ function update(currentTime) {
     // `direction` determines which way the wipe is going
     const direction = Math.floor(time) % 2 === 0;
 
-    // When the direction changes, pick a new random color for the side that was just revealed
+    // When the direction changes, we start a new color transition
     if (direction !== last_direction) {
         if (random_colors) {
-            if (direction) { // Was false, now true (wiping left to right)
-                color_a = randomRgb();
-            } else { // Was true, now false (wiping right to left)
-                color_b = randomRgb();
-            }
+            current_random_a = next_random_a;
+            current_random_b = next_random_b;
+            next_random_a = randomRgb();
+            next_random_b = randomRgb();
+        }
+        last_direction = direction;
+    }
+    
+    // Update random colors if the control is toggled
+    if (random_colors !== last_random_colors) {
+        if (random_colors) {
+            current_random_a = randomRgb();
+            current_random_b = randomRgb();
+            next_random_a = randomRgb();
+            next_random_b = randomRgb();
+        } else {
+            color_a = hexToRgb(color1);
+            color_b = hexToRgb(color2);
+        }
+        last_random_colors = random_colors;
+    }
+
+    // Update static colors if they change while random_colors is off
+    if (!random_colors) {
+        if (color1 !== last_color1) {
+            color_a = hexToRgb(color1);
+            last_color1 = color1;
+        }
+        if (color2 !== last_color2) {
+            color_b = hexToRgb(color2);
+            last_color2 = color2;
         }
     }
-    last_direction = direction;
 
-    if (!random_colors) {
-        color_a = hexToRgb(color1);
-        color_b = hexToRgb(color2);
-    }
-    
     // --- Render ---
-    // This is a horizontal effect, so we can calculate each column's color once
+    const current_color_a = random_colors ? lerpColor(current_random_a, next_random_a, progress) : color_a;
+    const current_color_b = random_colors ? lerpColor(current_random_b, next_random_b, progress) : color_b;
+
     for (let x = 0; x < canvasWidth; x++) {
-        const colColor = getColor(x, canvasWidth, progress, direction);
-        ctx.fillStyle = colColor;
-        ctx.fillRect(x, 0, 1, canvasHeight);
+        let finalColor;
+        
+        // Anti-aliased wipe logic
+        const wipe_position = direction ? progress : 1.0 - progress;
+        const x_norm = x / canvasWidth;
+        const distance = Math.abs(x_norm - wipe_position);
+        
+        if (distance < 0.01) { // A small tolerance for the edge
+            const factor = distance / 0.01;
+            const lerpFactor = direction ? factor : 1.0 - factor;
+            finalColor = lerpColor(current_color_a, current_color_b, lerpFactor);
+        } else {
+            finalColor = x_norm < wipe_position ? current_color_a : current_color_b;
+        }
+        
+        for (let y = 0; y < canvasHeight; y++) {
+            const pixelIndex = (y * canvasWidth + x) * 4;
+            pixels[pixelIndex] = Math.round(finalColor[0]);
+            pixels[pixelIndex + 1] = Math.round(finalColor[1]);
+            pixels[pixelIndex + 2] = Math.round(finalColor[2]);
+            pixels[pixelIndex + 3] = 255;
+        }
     }
     
+    ctx.putImageData(imageData, 0, 0);
+
     requestAnimationFrame(update);
 }
 
 // Initial call
 requestAnimationFrame(update);
-
 </script>
 </html>

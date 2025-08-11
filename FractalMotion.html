@@ -1,30 +1,30 @@
-<!DOCTYPE html>
+<!DOCTYPE html><!--Original code: https://gitlab.com/OpenRGBDevelopers/OpenRGBEffectsPlugin/-/tree/master?ref_type=heads-->
 <html>
 <head>
-    <title>Fractal Motion</title>
+    <title>ORGB: Fractal Motion</title>
     <meta description="A psychedelic, customizable fractal wave.">
-    <meta publisher="Jose Miranda (Conversion and improvements)">
+    <meta publisher="Jose Miranda (Port and improvements)">
 
-    <meta property="speed" label="Speed" type="number" min="20" max="200" default="50">
-    <meta property="thickness" label="Thickness" type="number" min="2" max="20" default="2">
-    <meta property="frequency" label="Base Frequency" type="number" min="1" max="10000" default="100">
-    <meta property="amplitude" label="Base Amplitude" type="number" min="1" max="10000" default="100">
-    <meta property="random_colors" label="Random Colors" type="boolean" default="true">
-    <meta property="user_color" label="Color" type="color" default="#ffffff">
-    <meta property="background_color" label="Background" type="color" default="#000000">
+    <meta property="speed" label="Speed" type="number" min="20" max="500" default="500">
+    <meta property="thickness" label="Thickness" type="number" min="2" max="20" default="20">
+    <meta property="frequency" label="Base Frequency" type="number" min="1" max="300" default="300">
+    <meta property="amplitude" label="Base Amplitude" type="number" min="1" max="300" default="300">
+    <meta property="random_colors" label="Random Colors" type="boolean" default="false">
+    <meta property="user_color" label="Color" type="color" default="#ffffff" min="0" max="360">
+    <meta property="background_color" label="Background" type="color" default="#000000" min="0" max="360">
 
-    <meta property="m1" label="Freq m1" type="number" min="1" max="10000" default="210">
-    <meta property="m2" label="Amp m2" type="number" min="1" max="10000" default="450">
-    <meta property="m3" label="Freq m3" type="number" min="1" max="10000" default="172">
-    <meta property="m4" label="Time m4" type="number" min="1" max="1000" default="112">
-    <meta property="m5" label="Amp m5" type="number" min="1" max="10000" default="400">
-    <meta property="m6" label="Freq m6" type="number" min="1" max="10000" default="222">
-    <meta property="m7" label="Time m7" type="number" min="1" max="100" default="44">
-    <meta property="m8" label="Amp m8" type="number" min="1" max="10000" default="500">
-    <meta property="m9" label="Freq m9" type="number" min="1" max="10000" default="211">
-    <meta property="m10" label="Time m10" type="number" min="1" max="10000" default="150">
-    <meta property="m11" label="Amp m11" type="number" min="1" max="10000" default="172">
-    <meta property="m12" label="Final Amp m12" type="number" min="1" max="100" default="6">
+    <meta property="m1" label="Freq m1" type="number" min="1" max="10000" default="560">
+    <meta property="m2" label="Amp m2" type="number" min="1" max="10000" default="10000">
+    <meta property="m3" label="Freq m3" type="number" min="1" max="10000" default="960">
+    <meta property="m4" label="Time m4" type="number" min="1" max="1000" default="200">
+    <meta property="m5" label="Amp m5" type="number" min="1" max="10000" default="7000">
+    <meta property="m6" label="Freq m6" type="number" min="1" max="10000" default="6200">
+    <meta property="m7" label="Time m7" type="number" min="1" max="100" default="30">
+    <meta property="m8" label="Amp m8" type="number" min="1" max="10000" default="1">
+    <meta property="m9" label="Freq m9" type="number" min="1" max="10000" default="1">
+    <meta property="m10" label="Time m10" type="number" min="1" max="10000" default="1">
+    <meta property="m11" label="Amp m11" type="number" min="1" max="10000" default="1">
+    <meta property="m12" label="Final Amp m12" type="number" min="1" max="100" default="1">
 </head>
 
 <body style="margin: 0; padding: 0;">
@@ -40,12 +40,18 @@ const canvas = document.getElementById('fractalmotion-canvas');
 const ctx = canvas.getContext('2d');
 const canvasWidth = canvas.width;
 const canvasHeight = canvas.height;
+const imageData = ctx.createImageData(canvasWidth, canvasHeight);
+const pixels = imageData.data;
 
 // Effect state variables
 let progress = 0.0;
 let random_tick = 0.0;
 let random_color = [255, 255, 255];
 let next_random_color = [255, 0, 0];
+
+let lastRandomColors = false;
+let lastUserColor = '';
+let lastBackgroundColor = '';
 
 // -------------------------------------------------------------------
 // COLOR UTILITIES
@@ -72,53 +78,6 @@ function lerpColor(c1, c2, f) {
 }
 
 // -------------------------------------------------------------------
-// EFFECT LOGIC
-// -------------------------------------------------------------------
-
-function getColor(x, y, w, h) {
-    // Scale the slider values to a more usable range
-    const f = frequency / 10000.0;
-    const inv_val_mult = 0.01;
-    const amp_val = amplitude * inv_val_mult;
-    const m1_val = m1 * inv_val_mult, m2_val = m2 * inv_val_mult, m3_val = m3 * inv_val_mult;
-    const m4_val = m4 * inv_val_mult, m5_val = m5 * inv_val_mult, m6_val = m6 * inv_val_mult;
-    const m7_val = m7 * inv_val_mult, m8_val = m8 * inv_val_mult, m9_val = m9 * inv_val_mult;
-    const m10_val = m10 * inv_val_mult, m11_val = m11 * inv_val_mult, m12_val = m12 * inv_val_mult;
-
-    // --- Fractal Calculation ---
-    // This formula creates the wave by summing multiple sine functions together.
-    let wave_y = Math.sin(x * f);
-    const t = -progress * (speed / 100.0);
-    wave_y += Math.sin(x * f * m1_val + t) * m2_val;
-    wave_y += Math.sin(x * f * m3_val + t * m4_val) * m5_val;
-    wave_y += Math.sin(x * f * m6_val + t * m7_val) * m8_val;
-    wave_y += Math.sin(x * f * m9_val + t * m10_val) * m11_val;
-    wave_y *= 0.1 * amp_val * m12_val;
-    // --- End Calculation ---
-    
-    // Normalize the wave position to the canvas height
-    wave_y = (1 + wave_y) * 0.5 * h;
-
-    const distance = Math.abs(wave_y - y);
-
-    const backgroundRgb = hexToRgb(background_color);
-
-    if (distance > thickness) {
-        return `rgb(${backgroundRgb[0]}, ${backgroundRgb[1]}, ${backgroundRgb[2]})`;
-    }
-
-    let activeColor;
-    if (random_colors) {
-        activeColor = lerpColor(random_color, next_random_color, Math.min(1.0, random_tick));
-    } else {
-        activeColor = hexToRgb(user_color);
-    }
-    
-    const finalColor = lerpColor(backgroundRgb, activeColor, 1 - (distance / thickness));
-    return `rgb(${finalColor[0]}, ${finalColor[1]}, ${finalColor[2]})`;
-}
-
-// -------------------------------------------------------------------
 // MAIN ANIMATION LOOP
 // -------------------------------------------------------------------
 
@@ -132,32 +91,76 @@ function update(currentTime) {
         return;
     }
 
-    const delta = (speed / 50.0) * deltaTime; // Normalized speed factor
+    const delta = (speed / 50.0) * deltaTime;
 
     // Update animation progress
     progress += 0.1 * delta;
 
     // Update random color transition
-    random_tick += 0.005 * delta;
-    if (random_tick >= 1.0) {
-        random_color = next_random_color;
-        next_random_color = randomRgb();
-        random_tick = 0;
+    if (random_colors !== lastRandomColors || user_color !== lastUserColor || background_color !== lastBackgroundColor) {
+        random_tick = 1.0; // Force a color change
+        lastRandomColors = random_colors;
+        lastUserColor = user_color;
+        lastBackgroundColor = background_color;
+    }
+    
+    if (random_colors) {
+        random_tick += 0.005 * delta;
+        if (random_tick >= 1.0) {
+            random_color = next_random_color;
+            next_random_color = randomRgb();
+            random_tick = 0;
+        }
     }
 
-    // Render
+    // Render with ImageData
+    const backgroundRgb = hexToRgb(background_color);
+    const activeColor = random_colors ? lerpColor(random_color, next_random_color, Math.min(1.0, random_tick)) : hexToRgb(user_color);
+
+    const f = frequency / 10000.0;
+    const inv_val_mult = 0.01;
+    const amp_val = amplitude * inv_val_mult;
+    const m1_val = m1 * inv_val_mult, m2_val = m2 * inv_val_mult, m3_val = m3 * inv_val_mult;
+    const m4_val = m4 * inv_val_mult, m5_val = m5 * inv_val_mult, m6_val = m6 * inv_val_mult;
+    const m7_val = m7 * inv_val_mult, m8_val = m8 * inv_val_mult, m9_val = m9 * inv_val_mult;
+    const m10_val = m10 * inv_val_mult, m11_val = m11 * inv_val_mult, m12_val = m12 * inv_val_mult;
+    const t = -progress * (speed / 100.0);
+    
     for (let y = 0; y < canvasHeight; y++) {
         for (let x = 0; x < canvasWidth; x++) {
-            ctx.fillStyle = getColor(x, y, canvasWidth, canvasHeight);
-            ctx.fillRect(x, y, 1, 1);
+            let wave_y = Math.sin(x * f);
+            wave_y += Math.sin(x * f * m1_val + t) * m2_val;
+            wave_y += Math.sin(x * f * m3_val + t * m4_val) * m5_val;
+            wave_y += Math.sin(x * f * m6_val + t * m7_val) * m8_val;
+            wave_y += Math.sin(x * f * m9_val + t * m10_val) * m11_val;
+            wave_y *= 0.1 * amp_val * m12_val;
+            
+            wave_y = (1 + wave_y) * 0.5 * canvasHeight;
+
+            const distance = Math.abs(wave_y - y);
+            const pixelIndex = (y * canvasWidth + x) * 4;
+            
+            if (distance > thickness) {
+                pixels[pixelIndex] = Math.round(backgroundRgb[0]);
+                pixels[pixelIndex + 1] = Math.round(backgroundRgb[1]);
+                pixels[pixelIndex + 2] = Math.round(backgroundRgb[2]);
+                pixels[pixelIndex + 3] = 255;
+            } else {
+                const finalColor = lerpColor(backgroundRgb, activeColor, 1 - (distance / thickness));
+                pixels[pixelIndex] = Math.round(finalColor[0]);
+                pixels[pixelIndex + 1] = Math.round(finalColor[1]);
+                pixels[pixelIndex + 2] = Math.round(finalColor[2]);
+                pixels[pixelIndex + 3] = 255;
+            }
         }
     }
     
+    ctx.putImageData(imageData, 0, 0);
+
     requestAnimationFrame(update);
 }
 
 // Initial call
 requestAnimationFrame(update);
-
 </script>
 </html>

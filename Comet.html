@@ -1,14 +1,14 @@
-<!DOCTYPE html>
+<!DOCTYPE html><!--Original code: https://gitlab.com/OpenRGBDevelopers/OpenRGBEffectsPlugin/-/tree/master?ref_type=heads-->
 <html>
 <head>
-    <title>Comet</title>
+    <title>ORGB: Comet</title>
     <meta description="A comet that travels through your devices.">
-    <meta publisher="Jose Miranda (Conversion and improvements)">
+    <meta publisher="Jose Miranda (Port and improvements)">
 
-    <meta property="speed" label="Speed" type="number" min="1" max="50" default="25">
-    <meta property="comet_size" label="Comet Size" type="number" min="1" max="100" default="50">
-    <meta property="random_colors" label="Random Colors" type="boolean" default="false">
-    <meta property="user_color" label="Color" type="color" default="#ffffff">
+    <meta property="speed" label="Speed" type="number" min="1" max="100" default="25">
+    <meta property="comet_size" label="Comet Size" type="number" min="1" max="100" default="100">
+    <meta property="random_colors" label="Random Colors" type="boolean" default="true">
+    <meta property="user_color" label="Color" type="color" default="#ffffff" min="0" max="360">
 </head>
 
 <body style="margin: 0; padding: 0;">
@@ -24,15 +24,20 @@ const canvas = document.getElementById('comet-canvas');
 const ctx = canvas.getContext('2d');
 const canvasWidth = canvas.width;
 const canvasHeight = canvas.height;
+const imageData = ctx.createImageData(canvasWidth, canvasHeight);
+const pixels = imageData.data;
 
 // Effect state variables
 let time = 0.0;
-let userColorHsv = { h: 0, s: 0, v: 1 }; // Store user color in HSV for easier manipulation
+let userColorHsv = { h: 0, s: 0, v: 1 };
+let lastUserColor = "";
+let lastRandomColors = false;
 
 // -------------------------------------------------------------------
 // COLOR UTILITIES
 // -------------------------------------------------------------------
 
+/** Converts a hex color string to an HSV object. */
 function hexToHsv(hex) {
     if (!hex) return { h: 0, s: 0, v: 1 };
     let r = parseInt(hex.slice(1, 3), 16) / 255;
@@ -54,43 +59,61 @@ function hexToHsv(hex) {
         }
         h /= 6;
     }
-    return { h: h * 360, s: s, v: v };
+    return { h: h, s: s, v: v };
+}
+
+/** Converts HSL values to an RGB array. */
+function hslToRgb(h, s, l) {
+    let r, g, b;
+
+    if (s === 0) {
+        r = g = b = l; // achromatic
+    } else {
+        const hue2rgb = (p, q, t) => {
+            if (t < 0) t += 1;
+            if (t > 1) t -= 1;
+            if (t < 1 / 6) return p + (q - p) * 6 * t;
+            if (t < 1 / 2) return q;
+            if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+            return p;
+        };
+
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        const p = 2 * l - q;
+        r = hue2rgb(p, q, h + 1 / 3);
+        g = hue2rgb(p, q, h);
+        b = hue2rgb(p, q, h - 1 / 3);
+    }
+
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
 }
 
 // -------------------------------------------------------------------
 // EFFECT LOGIC
 // -------------------------------------------------------------------
 
-function getColor(x, w) {
+function getCometColor(x, w) {
     const size = (comet_size / 100.0) * w;
-    const position = (time % 1.0) * w * 1.5; // Multiply to give it time to exit the screen
+    const position = (time * 1.5) % (w * 2);
 
-    if (x > position) {
-        return 'rgb(0,0,0)'; // Pixel is ahead of the comet
+    if (x > position || position - x > size) {
+        return [0, 0, 0];
     }
 
-    const distance = position - x;
-
-    if (distance > size) {
-        return 'rgb(0,0,0)'; // Pixel is behind the comet's tail
-    }
-
-    // Value is the brightness, from 1.0 (head) to 0.0 (end of tail)
-    const value = 1.0 - (distance / size);
-
-    let hue, saturation, brightness;
+    const value = 1.0 - (position - x) / size;
+    let hue, saturation, lightness;
 
     if (random_colors) {
-        hue = (time * 200 + (distance / size) * 360) % 360;
-        saturation = Math.pow(value, 0.2) * 100; // In HSL, saturation is 0-100%
-        brightness = Math.pow(value, 3) * 50;    // In HSL, lightness is 0-100%, 50% is full color
+        hue = (time * 200 + (position - x) / size * 360) % 360;
+        saturation = Math.pow(value, 0.2);
+        lightness = Math.pow(value, 3) * 0.5;
     } else {
         hue = userColorHsv.h;
-        saturation = Math.pow(value, 0.2) * userColorHsv.s * 100;
-        brightness = Math.pow(value, 3) * userColorHsv.v * 50;
+        saturation = Math.pow(value, 0.2) * userColorHsv.s;
+        lightness = Math.pow(value, 3) * userColorHsv.v * 0.5;
     }
 
-    return `hsl(${hue}, ${saturation}%, ${brightness}%)`;
+    return hslToRgb(hue / 360, saturation, lightness);
 }
 
 // -------------------------------------------------------------------
@@ -98,7 +121,6 @@ function getColor(x, w) {
 // -------------------------------------------------------------------
 
 let lastTime = 0;
-let lastUserColor = "";
 function update(currentTime) {
     const deltaTime = (currentTime - lastTime) / 1000;
     lastTime = currentTime;
@@ -109,28 +131,33 @@ function update(currentTime) {
     }
 
     // Update time based on speed
-    time += 0.1 * speed * deltaTime;
+    time += 5 * speed * deltaTime;
 
     // Update the stored user color in HSV format if it changes
-    if (user_color !== lastUserColor) {
+    if (user_color !== lastUserColor || random_colors !== lastRandomColors) {
         userColorHsv = hexToHsv(user_color);
         lastUserColor = user_color;
+        lastRandomColors = random_colors;
     }
 
-    // Render to canvas
-    // This effect is horizontal, so we can calculate each column's color once
-    // and fill the entire column.
+    // Render to canvas using ImageData
     for (let x = 0; x < canvasWidth; x++) {
-        const colColor = getColor(x, canvasWidth);
-        ctx.fillStyle = colColor;
-        ctx.fillRect(x, 0, 1, canvasHeight);
+        const [r, g, b] = getCometColor(x, canvasWidth);
+        for (let y = 0; y < canvasHeight; y++) {
+            const index = (y * canvasWidth + x) * 4;
+            pixels[index] = r;
+            pixels[index + 1] = g;
+            pixels[index + 2] = b;
+            pixels[index + 3] = 255;
+        }
     }
     
+    ctx.putImageData(imageData, 0, 0);
+
     requestAnimationFrame(update);
 }
 
 // Initial call
 requestAnimationFrame(update);
-
 </script>
 </html>

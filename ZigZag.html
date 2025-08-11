@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>ZigZag</title>
+    <title>ORGB: ZigZag</title>
     <meta description="A snake moving on your matrix typed devices.">
-    <meta publisher="Jose Miranda (Conversion and improvements)">
+    <meta publisher="Jose Miranda (Port and improvements)">
 
-    <meta property="speed" label="Speed" type="number" min="1" max="20" default="10">
+    <meta property="speed" label="Speed" type="number" min="1" max="100" default="10">
     <meta property="random_colors" label="Random Colors" type="boolean" default="true">
-    <meta property="user_color" label="Color" type="color" default="#ffffff">
+    <meta property="user_color" label="Color" type="color" default="#ffffff" min="0" max="360">
 </head>
 
 <body style="margin: 0; padding: 0;">
@@ -23,15 +23,20 @@ const canvas = document.getElementById('zigzag-canvas');
 const ctx = canvas.getContext('2d');
 const canvasWidth = canvas.width;
 const canvasHeight = canvas.height;
+const imageData = ctx.createImageData(canvasWidth, canvasHeight);
+const pixels = imageData.data;
 
 // Effect state variables
 let time = 0.0;
 let userColorHsv = { h: 0, s: 0, v: 1 };
+let lastUserColor = "";
+let lastRandomColors = false;
 
 // -------------------------------------------------------------------
 // COLOR UTILITIES
 // -------------------------------------------------------------------
 
+/** Converts a hex color string to an HSV object. */
 function hexToHsv(hex) {
     if (!hex) return { h: 0, s: 0, v: 1 };
     let r = parseInt(hex.slice(1, 3), 16) / 255;
@@ -53,7 +58,33 @@ function hexToHsv(hex) {
         }
         h /= 6;
     }
-    return { h: h * 360, s: s, v: v };
+    return { h: h, s: s, v: v };
+}
+
+/** Converts HSL values to an RGB array. */
+function hslToRgb(h, s, l) {
+    let r, g, b;
+
+    if (s === 0) {
+        r = g = b = l; // achromatic
+    } else {
+        const hue2rgb = (p, q, t) => {
+            if (t < 0) t += 1;
+            if (t > 1) t -= 1;
+            if (t < 1 / 6) return p + (q - p) * 6 * t;
+            if (t < 1 / 2) return q;
+            if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+            return p;
+        };
+
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        const p = 2 * l - q;
+        r = hue2rgb(p, q, h + 1 / 3);
+        g = hue2rgb(p, q, h);
+        b = hue2rgb(p, q, h - 1 / 3);
+    }
+
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
 }
 
 // -------------------------------------------------------------------
@@ -81,16 +112,17 @@ function getColor(x, y, w, h, progress) {
             saturation = 100;
             value = distance * 100;
         } else {
-            hue = userColorHsv.h;
+            hue = userColorHsv.h * 360;
             saturation = userColorHsv.s * 100;
             value = userColorHsv.v * distance * 100;
         }
 
-        return `hsl(${hue}, ${saturation}%, ${value / 2}%)`; // Lightness is 0-100%, so we use value/2
+        // Return RGB array instead of HSL string for performance
+        return hslToRgb(hue / 360, saturation / 100, value / 200); 
     }
     
     // Pixel is ahead of the snake, so it's off.
-    return 'rgb(0,0,0)';
+    return [0,0,0];
 }
 
 // -------------------------------------------------------------------
@@ -98,7 +130,6 @@ function getColor(x, y, w, h, progress) {
 // -------------------------------------------------------------------
 
 let lastTime = 0;
-let lastUserColor = "";
 function update(currentTime) {
     const deltaTime = (currentTime - lastTime) / 1000;
     lastTime = currentTime;
@@ -109,30 +140,36 @@ function update(currentTime) {
     }
 
     // --- Update State ---
-    time += 0.01 * speed * deltaTime * 60;
+    time = (time + 0.01 * speed * deltaTime) % 1; // Modular time to prevent precision issues
     
     // The progress of the snake's head, which moves back and forth (0 -> 1 -> 0)
-    const progress = (2 * (time - Math.floor(time)));
+    const progress = (2 * time > 1) ? 2 - (2 * time) : (2 * time);
 
     // Update the stored user color in HSV format if it changes
-    if (user_color !== lastUserColor) {
+    if (user_color !== lastUserColor || random_colors !== lastRandomColors) {
         userColorHsv = hexToHsv(user_color);
         lastUserColor = user_color;
+        lastRandomColors = random_colors;
     }
 
-    // --- Render ---
+    // --- Render with ImageData ---
     for (let y = 0; y < canvasHeight; y++) {
         for (let x = 0; x < canvasWidth; x++) {
-            ctx.fillStyle = getColor(x, y, canvasWidth, canvasHeight, progress);
-            ctx.fillRect(x, y, 1, 1);
+            const index = (y * canvasWidth + x) * 4;
+            const [r, g, b] = getColor(x, y, canvasWidth, canvasHeight, progress);
+            pixels[index] = r;
+            pixels[index + 1] = g;
+            pixels[index + 2] = b;
+            pixels[index + 3] = 255; // Alpha
         }
     }
+    
+    ctx.putImageData(imageData, 0, 0);
     
     requestAnimationFrame(update);
 }
 
 // Initial call
 requestAnimationFrame(update);
-
 </script>
 </html>

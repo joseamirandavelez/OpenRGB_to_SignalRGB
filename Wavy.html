@@ -1,16 +1,17 @@
-<!DOCTYPE html>
+<!DOCTYPE html><!--Original code: https://gitlab.com/OpenRGBDevelopers/OpenRGBEffectsPlugin/-/tree/master?ref_type=heads-->
 <html>
 <head>
-    <title>Wavy</title>
+    <title>ORGB: Wavy</title>
     <meta description="Alternate colors like waves.">
-    <meta publisher="Jose Miranda (Conversion and improvements)">
+    <meta publisher="Jose Miranda (Port and improvements)">
 
     <meta property="wave_frequency" label="Wave Frequency" type="number" min="1" max="20" default="5">
     <meta property="wave_speed" label="Wave Speed" type="number" min="1" max="200" default="50">
     <meta property="oscillation_speed" label="Oscillation Speed" type="number" min="1" max="200" default="100">
     <meta property="random_colors" label="Random Colors" type="boolean" default="false">
-    <meta property="color1" label="Color 1" type="color" default="#ff0000">
-    <meta property="color2" label="Color 2" type="color" default="#0000ff">
+    <meta property="color_change_speed" label="Color Change Speed" type="number" min="1" max="100" default="10">
+    <meta property="color1" label="Color 1" type="color" min="0" max="360" default="#ff0000">
+    <meta property="color2" label="Color 2" type="color" min="0" max="360" default="#0000ff">
 </head>
 
 <body style="margin: 0; padding: 0;">
@@ -26,13 +27,21 @@ const canvas = document.getElementById('wavy-canvas');
 const ctx = canvas.getContext('2d');
 const canvasWidth = canvas.width;
 const canvasHeight = canvas.height;
+const imageData = ctx.createImageData(canvasWidth, canvasHeight);
+const pixels = imageData.data;
 
 // Effect state variables
 let direction = true; // true = up, false = down
 let sine_progress = 0.0; // Controls the color oscillation (-1 to 1)
 let wave_progress = 0.0; // Controls the horizontal scroll (0 to 100)
-let color_a = [255, 0, 0];
-let color_b = [0, 0, 255];
+let color_a = hexToRgb("#ff0000");
+let color_b = hexToRgb("#0000ff");
+let hue_progress = 0; // For continuous rainbow scroll
+
+let last_color1 = '';
+let last_color2 = '';
+let last_random_colors = false;
+let hue_speed_multiplier = 0.01;
 
 // -------------------------------------------------------------------
 // COLOR UTILITIES
@@ -46,13 +55,23 @@ function hexToRgb(hex) {
     return [r, g, b];
 }
 
-function randomRgb() {
-    return [Math.random() * 255, Math.random() * 255, Math.random() * 255];
-}
-
-/** Inverts a color */
-function invertRgb(rgb) {
-    return [255 - rgb[0], 255 - rgb[1], 255 - rgb[2]];
+/** Converts HSV to RGB */
+function hsvToRgb(h, s, v) {
+    let r, g, b;
+    const i = Math.floor(h * 6);
+    const f = h * 6 - i;
+    const p = v * (1 - s);
+    const q = v * (1 - f * s);
+    const t = v * (1 - (1 - f) * s);
+    switch (i % 6) {
+        case 0: r = v, g = t, b = p; break;
+        case 1: r = q, g = v, b = p; break;
+        case 2: r = p, g = v, b = t; break;
+        case 3: r = p, g = q, b = v; break;
+        case 4: r = t, g = p, b = v; break;
+        case 5: r = v, g = p, b = q; break;
+    }
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
 }
 
 /** Linearly interpolates between two colors */
@@ -61,26 +80,6 @@ function lerpColor(c1, c2, factor) {
     const g = c1[1] * (1 - factor) + c2[1] * factor;
     const b = c1[2] * (1 - factor) + c2[2] * factor;
     return [r, g, b];
-}
-
-// -------------------------------------------------------------------
-// EFFECT LOGIC
-// -------------------------------------------------------------------
-
-function getColor(x, w) {
-    // Calculate the position of the pixel within the scrolling wave
-    const pos = (x + (w * wave_progress) / 100.0) / w;
-    const rad = (360.0 * pos) * Math.PI / 180.0;
-    
-    // Calculate the height of the sine wave at this position
-    const wave_height = sine_progress * Math.sin(wave_frequency * rad);
-    
-    // Normalize the height to a 0.0 - 1.0 factor for color interpolation
-    const h_factor = 0.5 + wave_height / 2.0;
-    
-    const final_color = lerpColor(color_a, color_b, h_factor);
-    
-    return `rgb(${final_color[0]}, ${final_color[1]}, ${final_color[2]})`;
 }
 
 // -------------------------------------------------------------------
@@ -98,7 +97,7 @@ function update(currentTime) {
     }
 
     // --- Update State ---
-
+    
     // Update the color oscillation progress (moves between -1 and 1)
     const osc_delta = 0.01 * oscillation_speed * deltaTime * 60;
     if (direction) {
@@ -114,31 +113,56 @@ function update(currentTime) {
     wave_progress += 0.05 * wave_speed * deltaTime * 60;
     if (wave_progress >= 100.0) wave_progress = 0.0;
     
-    // Check if a cycle has just completed to generate new random colors
-    if (Math.abs(sine_progress) < 0.01) {
-        if (random_colors) {
-            color_a = randomRgb();
-            color_b = invertRgb(color_a);
-        }
+    // Check for changes in meta properties
+    if (random_colors !== last_random_colors) {
+        last_random_colors = random_colors;
     }
-    if (!random_colors) {
-        color_a = hexToRgb(color1);
-        color_b = hexToRgb(color2);
+    
+    // Update colors based on the mode
+    if (random_colors) {
+        hue_progress += hue_speed_multiplier * color_change_speed * deltaTime;
+        const hue1 = (hue_progress * 360) % 360;
+        const hue2 = (hue1 + 180) % 360;
+
+        color_a = hsvToRgb(hue1 / 360, 1.0, 1.0);
+        color_b = hsvToRgb(hue2 / 360, 1.0, 1.0);
+    } else {
+        if (color1 !== last_color1) {
+            color_a = hexToRgb(color1);
+            last_color1 = color1;
+        }
+        if (color2 !== last_color2) {
+            color_b = hexToRgb(color2);
+            last_color2 = color2;
+        }
     }
     
     // --- Render ---
-    // This is a horizontal effect, so we calculate each column's color once
-    for (let x = 0; x < canvasWidth; x++) {
-        const colColor = getColor(x, canvasWidth);
-        ctx.fillStyle = colColor;
-        ctx.fillRect(x, 0, 1, canvasHeight);
+    const h_factor = 0.5 + sine_progress / 2.0;
+
+    for (let y = 0; y < canvasHeight; y++) {
+        for (let x = 0; x < canvasWidth; x++) {
+            const pos = (x + (canvasWidth * wave_progress) / 100.0) / canvasWidth;
+            const rad = (360.0 * pos) * Math.PI / 180.0;
+            const wave_height = Math.sin(wave_frequency * rad);
+            const final_factor = Math.min(1.0, Math.max(0.0, h_factor + wave_height / 2.0));
+
+            const final_color = lerpColor(color_a, color_b, final_factor);
+
+            const index = (y * canvasWidth + x) * 4;
+            pixels[index] = Math.round(final_color[0]);
+            pixels[index + 1] = Math.round(final_color[1]);
+            pixels[index + 2] = Math.round(final_color[2]);
+            pixels[index + 3] = 255;
+        }
     }
     
+    ctx.putImageData(imageData, 0, 0);
+
     requestAnimationFrame(update);
 }
 
 // Initial call
 requestAnimationFrame(update);
-
 </script>
 </html>
